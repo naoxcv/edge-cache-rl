@@ -1,0 +1,41 @@
+# Network
+num_nodes: 10
+num_clusters: 3
+intra_cluster_latency_ms: 2
+inter_cluster_latency_ms: 20
+cloud_latency_ms: 100
+
+# Containers
+num_container_types: 20
+cache_capacity: 5           # slots per node
+
+# Traffic
+zipf_alpha: 1.0
+request_rate: 1             # requests per node per timestep
+traffic_pattern: "stationary"  # stationary, shifting, bursty
+shift_interval: 500         # timesteps between popularity shifts (if shifting)
+burst_probability: 0.05     # probability of burst per timestep (if bursty)
+burst_multiplier: 10        # demand multiplier during burst
+
+# Reward
+reward_local_hit: 1.0
+reward_forward_hit: 0.5
+reward_cloud_pull: -1.0
+comm_penalty_lambda: 0.0    # communication cost coefficient
+
+# Communication (unused until week 5, but define now)
+comm_level: 0               # 0=none, 1=neighbor_summary, 2=full_neighbor, 3=selective
+selective_comm_threshold: 0.1  # Q-value margin threshold for Level 3
+
+# Environment
+episode_length: 1000
+observation_window: 50       # timesteps of request history in state vector
+
+# Training (unused until week 2, but define now)
+learning_rate: 0.0003
+buffer_size: 100000
+target_update_interval: 1000
+epsilon_start: 1.0
+epsilon_end: 0.05
+epsilon_decay_steps: 50000
+hidden_layers: [128, 128, 64]
