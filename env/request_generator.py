@@ -24,32 +24,72 @@ class RequestGenerator:
 
         self.rng = np.random.default_rng(seed)
 
+    def _traffic_pattern(self) -> str:
+        return str(self.config.get("traffic_pattern", "stationary"))
+
     def _maybe_shift_popularity(self) -> None:
-        pass
+        """Permute rank assignments so former hot containers become cold and vice versa."""
+        if self._traffic_pattern() != "shifting":
+            return
+
+        shift_interval = int(self.config.get("shift_interval", 500))
+        if shift_interval <= 0:
+            return
+        if self.timestep <= 0 or self.timestep % shift_interval != 0:
+            return
+
+        container_ids = [self._id_by_rank[rank] for rank in range(self.num_types)]
+        self.rng.shuffle(container_ids)
+        self._id_by_rank = {
+            rank: container_ids[rank] for rank in range(self.num_types)
+        }
 
     def _maybe_burst(self) -> int | None:
-        return None
+        """With burst_probability, pick a container to receive burst_multiplier demand."""
+        if self._traffic_pattern() != "bursty":
+            return None
 
-    def _sample_requests(self) -> list[int | None]:
+        burst_probability = float(self.config.get("burst_probability", 0.05))
+        if self.rng.random() >= burst_probability:
+            return None
+
+        rank = int(self.rng.integers(0, self.num_types))
+        return self._id_by_rank[rank]
+
+    def _sample_requests(self, burst_container: int | None = None) -> list[int | None]:
         requests: list[int | None] = []
-        for _ in range(self.num_nodes):
-            rank = int(self.rng.choice(self.num_types, p=self._probabilities))
-            requests.append(self._id_by_rank[rank])
+        burst_slots = 0
+        if burst_container is not None:
+            burst_slots = min(
+                int(self.config.get("burst_multiplier", 10)),
+                self.num_nodes,
+            )
+
+        for node_idx in range(self.num_nodes):
+            if node_idx < burst_slots:
+                requests.append(burst_container)
+            else:
+                rank = int(self.rng.choice(self.num_types, p=self._probabilities))
+                requests.append(self._id_by_rank[rank])
         return requests
 
     def peek(self) -> list[int | None]:
-        """Return the next request batch without advancing RNG or timestep."""
-        state = self.rng.bit_generator.state
+        """Return the next request batch without advancing RNG, timestep, or popularity."""
+        rng_state = self.rng.bit_generator.state
+        id_by_rank = dict(self._id_by_rank)
+
         self._maybe_shift_popularity()
-        self._maybe_burst()
-        requests = self._sample_requests()
-        self.rng.bit_generator.state = state
+        burst_container = self._maybe_burst()
+        requests = self._sample_requests(burst_container)
+
+        self.rng.bit_generator.state = rng_state
+        self._id_by_rank = id_by_rank
         return requests
 
     def generate(self) -> list[int | None]:
         self._maybe_shift_popularity()
-        self._maybe_burst()
-        requests = self._sample_requests()
+        burst_container = self._maybe_burst()
+        requests = self._sample_requests(burst_container)
         self.timestep += 1
         return requests
 

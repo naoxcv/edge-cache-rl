@@ -13,10 +13,10 @@ if str(ROOT) not in sys.path:
 from agents.baselines import LFUPolicy, LRUPolicy
 from configs import load_config
 from env.caching_env import CachingEnv
+from run_paths import figure_path
 
 NUM_STEPS = 10_000
-RESULTS_DIR = ROOT / "results"
-PLOT_PATH = RESULTS_DIR / "week1_baselines.png"
+PLOT_PATH = figure_path("week1_baselines.png")
 HIT_RATE_BOUNDS = (0.15, 0.50)
 
 
@@ -104,7 +104,7 @@ def sanity_check(result: dict) -> None:
 
 
 def plot_results(lru: dict, lfu: dict) -> None:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    PLOT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     plt.figure(figsize=(10, 6))
     plt.plot(lru["cumulative_rewards"], label="LRU")

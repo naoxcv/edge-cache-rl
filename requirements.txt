@@ -3,3 +3,8 @@ numpy
 pyyaml
 pytest
 matplotlib
+stable-baselines3
+torch
+tensorboard
+tqdm
+rich

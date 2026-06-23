@@ -46,6 +46,25 @@ def test_cache_container_returns_none_for_duplicate(small_node):
     assert small_node.cache == [0]
 
 
+def test_touch_container_moves_to_mru(small_node):
+    for cid in [0, 1, 2]:
+        small_node.cache_container(cid)
+
+    assert small_node.touch_container(0) is True
+    assert small_node.cache == [1, 2, 0]
+
+    assert small_node.touch_container(99) is False
+    assert small_node.cache == [1, 2, 0]
+
+
+def test_cache_container_touches_existing_entry(small_node):
+    small_node.cache_container(0)
+    small_node.cache_container(1)
+    small_node.cache_container(0)
+
+    assert small_node.cache == [1, 0]
+
+
 def test_cache_container_evicts_oldest_when_full(small_node):
     for cid in [0, 1, 2]:
         assert small_node.cache_container(cid) is None

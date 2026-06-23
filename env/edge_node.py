@@ -18,9 +18,18 @@ class EdgeNode:
     def is_cached(self, container_id: int) -> bool:
         return container_id in self.cache_set
 
+    def touch_container(self, container_id: int) -> bool:
+        """Mark container as most recently used. Returns True if it was cached."""
+        if container_id not in self.cache_set:
+            return False
+        self.cache.remove(container_id)
+        self.cache.append(container_id)
+        return True
+
     def cache_container(self, container_id: int) -> int | None:
         """Add container to cache. Returns evicted container ID if cache was full, else None."""
         if container_id in self.cache_set:
+            self.touch_container(container_id)
             return None
         evicted = None
         if len(self.cache) >= self.cache_capacity:

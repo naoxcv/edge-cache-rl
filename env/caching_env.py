@@ -60,6 +60,7 @@ class CachingEnv(gym.Env):
 
         node = self._active_node()
         if node.is_cached(container_id):
+            node.touch_container(container_id)
             node.hits += 1
             return self.config["reward_local_hit"]
 

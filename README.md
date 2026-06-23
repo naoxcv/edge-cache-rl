@@ -20,7 +20,7 @@ agents/        LRU and LFU baseline policies
 configs/       default.yaml and load_config()
 experiments/   validate_week1.py
 tests/         pytest suite
-results/       validation plots (generated)
+results/       figures/ and runs/ (see results/README.md)
 ```
 
 ## Quick start
@@ -96,6 +96,15 @@ action = policy.act(observation, requested, cache=node.cache)
 pytest tests/ -v
 ```
 
+## Train DQN
+
+```bash
+python experiments/train_single.py --timesteps 1000000 --run-name dqn_generalized
+python experiments/compare_policies.py --dqn-path dqn_generalized --seeds 42,0,7
+```
+
+Artifacts are written to `results/runs/<run_name>/` (`best_model.zip`, `model.zip`, `evaluations.npz`, `tensorboard/`). See `results/README.md`.
+
 ## Run validation
 
 Runs LRU and LFU for 10,000 timesteps and saves a cumulative-reward plot.
@@ -104,7 +113,7 @@ Runs LRU and LFU for 10,000 timesteps and saves a cumulative-reward plot.
 python experiments/validate_week1.py
 ```
 
-Output plot: `results/week1_baselines.png`
+Output plot: `results/figures/week1_baselines.png`
 
 ### Baseline results (K=20, C=5, Zipf α=1.0, seed=42)
 

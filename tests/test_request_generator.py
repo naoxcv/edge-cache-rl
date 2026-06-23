@@ -91,11 +91,89 @@ def test_reset_clears_timestep(generator):
     assert generator.timestep == 0
 
 
-def test_maybe_burst_stub_returns_none(generator):
+def test_stationary_does_not_shift(generator):
+    original = dict(generator._id_by_rank)
+    generator.timestep = 500
+    generator._maybe_shift_popularity()
+    assert generator._id_by_rank == original
+
+
+def test_shifting_permutes_rank_mapping(config, catalog):
+    config = dict(config)
+    config["traffic_pattern"] = "shifting"
+    config["shift_interval"] = 100
+
+    gen = RequestGenerator(config, catalog, seed=42)
+    before = dict(gen._id_by_rank)
+
+    gen.timestep = 100
+    gen._maybe_shift_popularity()
+
+    assert gen._id_by_rank != before
+    assert sorted(gen._id_by_rank.keys()) == list(range(config["num_container_types"]))
+    assert sorted(gen._id_by_rank.values()) == sorted(before.values())
+
+
+def test_shifting_redistributes_demand(config, catalog):
+    config = dict(config)
+    config["traffic_pattern"] = "shifting"
+    config["shift_interval"] = 500
+
+    gen = RequestGenerator(config, catalog, seed=42)
+    rank0_before_shift = gen._id_by_rank[0]
+
+    before_counts = Counter(gen.generate()[0] for _ in range(500))
+    after_counts = Counter(gen.generate()[0] for _ in range(500))
+
+    assert before_counts[rank0_before_shift] > after_counts[rank0_before_shift]
+
+
+def test_burst_inactive_for_stationary(generator):
+    generator.config = dict(generator.config)
+    generator.config["traffic_pattern"] = "stationary"
     assert generator._maybe_burst() is None
 
 
-def test_maybe_shift_popularity_stub_is_noop(generator):
-    original = dict(generator._id_by_rank)
-    generator._maybe_shift_popularity()
-    assert generator._id_by_rank == original
+def test_burst_spikes_demand_for_one_container(config, catalog):
+    config = dict(config)
+    config["traffic_pattern"] = "bursty"
+    config["burst_probability"] = 1.0
+    config["burst_multiplier"] = 10
+    config["num_nodes"] = 10
+
+    gen = RequestGenerator(config, catalog, seed=42)
+    requests = gen.generate()
+
+    counts = Counter(requests)
+    assert sum(counts.values()) == 10
+    assert max(counts.values()) == config["burst_multiplier"]
+
+
+def test_burst_probability_zero_never_bursts(config, catalog):
+    config = dict(config)
+    config["traffic_pattern"] = "bursty"
+    config["burst_probability"] = 0.0
+
+    gen = RequestGenerator(config, catalog, seed=42)
+    for _ in range(100):
+        assert gen._maybe_burst() is None
+
+
+def test_peek_does_not_advance_timestep_or_shift(generator):
+    generator.config = dict(generator.config)
+    generator.config["traffic_pattern"] = "shifting"
+    generator.config["shift_interval"] = 1
+
+    generator.timestep = 1
+    mapping_before = dict(generator._id_by_rank)
+    peeked = generator.peek()
+
+    assert generator.timestep == 1
+    assert generator._id_by_rank == mapping_before
+    assert len(peeked) == generator.num_nodes
+
+
+def test_peek_matches_generate_when_no_mutation(generator):
+    expected = generator.generate()
+    generator.reset()
+    assert generator.peek() == expected
