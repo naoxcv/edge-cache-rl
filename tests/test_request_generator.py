@@ -9,7 +9,10 @@ from env.request_generator import RequestGenerator
 
 @pytest.fixture
 def config():
-    return load_config()
+    cfg = load_config()
+    # Most generator unit tests assume a fixed Zipf ranking (no shifts).
+    cfg["traffic_pattern"] = "stationary"
+    return cfg
 
 
 @pytest.fixture

@@ -1,4 +1,15 @@
 venv/
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
+.DS_Store
+.mypy_cache/
+.ruff_cache/
+
+# Training artifacts (keep configs/evals in git if desired; ignore heavy files)
+results/tb_logs/
+results/**/tensorboard/
+results/**/*.zip
+results/*.zip
+results/*_best/

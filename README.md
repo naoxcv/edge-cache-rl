@@ -1,6 +1,8 @@
 # edge-cache-rl
 
-Gymnasium environment for edge container caching under Zipf traffic. Week 1 delivers the simulation stack, LRU/LFU baselines, and a validation script.
+Gymnasium edge-caching RL under Zipf traffic (stationary / shifting / bursty).
+Single-node SB3 DQN through Week 3; Week 4 multi-node Level 0 uses a **shared-policy**
+SB3 DQN with same-cluster forwarding.
 
 ## Setup
 
@@ -15,12 +17,12 @@ pip install -r requirements.txt
 ## Project layout
 
 ```
-env/           Edge nodes, network, request generator, CachingEnv
-agents/        LRU and LFU baseline policies
-configs/       default.yaml and load_config()
-experiments/   validate_week1.py
+env/           Edge nodes, network, request generator, CachingEnv, MultiAgentCachingEnv
+agents/        LRU/LFU, single-agent SB3 DQN, multi-agent shared-policy SB3 DQN
+configs/       default.yaml (defaults to shifting traffic)
+experiments/   train/compare/validate scripts (single + multi)
 tests/         pytest suite
-results/       figures/ and runs/ (see results/README.md)
+results/       figures/ and runs/<name>/ (model zips gitignored; see results/README.md)
 ```
 
 ## Quick start
@@ -40,9 +42,10 @@ env.render()
 
 ## Environment interface
 
-Defaults: `K=20` container types, `C=5` cache slots per node, `10` nodes (single-node mode uses node 0).
+Defaults: `K=20` container types, `C=5` cache slots per node, `10` nodes / `3` clusters
+(single-node mode uses node 0). Default traffic is **shifting**.
 
-### Observation (`Box(0, 1, shape=(2K+1,))`)
+### Observation (`Box(0, 1, shape=(2K+1,))`) — Level 0
 
 | Slice | Size | Meaning |
 |-------|------|---------|
@@ -66,6 +69,9 @@ Defaults: `K=20` container types, `C=5` cache slots per node, `10` nodes (single
 | Forward hit (neighbor has container) | +0.5 |
 | Cloud pull | -1.0 |
 | No request | 0.0 |
+
+Forwarding is controlled by `enable_forwarding` and `forwarding_same_cluster_only`
+(both default true). Scoring is shared via `env/rewards.py`.
 
 ### Step order (RL)
 
@@ -96,33 +102,57 @@ action = policy.act(observation, requested, cache=node.cache)
 pytest tests/ -v
 ```
 
-## Train DQN
+## Train DQN (single-node)
 
 ```bash
 python experiments/train_single.py --timesteps 1000000 --run-name dqn_generalized
 python experiments/compare_policies.py --dqn-path dqn_generalized --seeds 42,0,7
 ```
 
-Artifacts are written to `results/runs/<run_name>/` (`best_model.zip`, `model.zip`, `evaluations.npz`, `tensorboard/`). See `results/README.md`.
+Artifacts: `results/runs/<run_name>/` (`best_model.zip`, `model.zip`, `evaluations.npz`, `tensorboard/`).
 
-## Run validation
+## Multi-node (Week 4, Level 0)
 
-Runs LRU and LFU for 10,000 timesteps and saves a cumulative-reward plot.
+`MultiAgentCachingEnv` steps all N nodes each timestep. Level 0 baseline is a **shared-policy**
+SB3 DQN warm-started from single-node `dqn_shifting` (zero-shot transfer; from-scratch multi
+train underperformed). Canonical run: `results/runs/dqn_multi_level0/`.
+
+```bash
+# Verify forwarding with random actions
+python experiments/train_multi.py verify --nodes 3 --clusters 1 --traffic shifting
+python experiments/train_multi.py verify --nodes 10 --clusters 3 --traffic shifting
+
+# Multi-node LRU/LFU (+ optional DQN)
+python experiments/compare_multi.py --nodes 10 --clusters 3 --episodes 20 --seeds 42,0,7
+python experiments/compare_multi.py --nodes 3 --clusters 1 --dqn-path dqn_multi_level0 --seeds 42,0,7
+
+# Ablate forwarding
+python experiments/compare_multi.py --nodes 3 --clusters 1 --no-forwarding --no-dqn
+
+# Warm-start Level 0 from single-node shifting DQN
+python experiments/train_multi.py train \
+  --nodes 3 --clusters 1 --timesteps 100000 \
+  --run-name dqn_multi_level0 --traffic shifting \
+  --pretrained dqn_shifting
+```
+
+## Validation plots
 
 ```bash
 python experiments/validate_week1.py
+python experiments/validate_traffic_patterns.py
 ```
 
-Output plot: `results/figures/week1_baselines.png`
+Figures land in `results/figures/`.
 
-### Baseline results (K=20, C=5, Zipf α=1.0, seed=42)
+### Week-1 single-node baseline sketch (K=20, C=5, Zipf α=1.0, seed=42)
 
 | Policy | Cache hit rate | Forward rate | Cloud pull rate |
 |--------|----------------|--------------|-----------------|
 | LRU | 45.1% | 0.0% | 54.9% |
 | LFU | 59.1% | 0.0% | 40.9% |
 
-Forward rate is 0% because week 1 runs a single active node; neighbor caches are empty.
+Forward rate is 0% in that table because week 1 ran a single active node with empty neighbor caches.
 
 ## Configuration
 

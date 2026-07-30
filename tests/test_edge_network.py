@@ -75,6 +75,21 @@ def test_find_any_neighbor_with_ignores_non_neighbors(network):
     assert network.find_any_neighbor_with(0, 5) == 3
 
 
+def test_get_cluster_neighbors_excludes_bridge(network):
+    # cluster 0: 0, 3, 6, 9 — adjacency also includes bridge 1, but cluster neighbors do not
+    assert network.get_cluster_neighbors(0) == [3, 6, 9]
+    assert 1 not in network.get_cluster_neighbors(0)
+
+
+def test_same_cluster_only_forwarding_skips_bridge_neighbor(network):
+    network.nodes[1].cache_container(5)  # bridge neighbor of 0, different cluster
+    assert network.find_any_neighbor_with(0, 5, same_cluster_only=True) is None
+    assert network.find_any_neighbor_with(0, 5, same_cluster_only=False) == 1
+
+    network.nodes[3].cache_container(5)
+    assert network.find_any_neighbor_with(0, 5, same_cluster_only=True) == 3
+
+
 def test_get_forwarding_cost(network, config):
     assert network.get_forwarding_cost(0, 0) == 0.0
     assert network.get_forwarding_cost(0, 3) == config["intra_cluster_latency_ms"]

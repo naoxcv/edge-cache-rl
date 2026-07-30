@@ -75,8 +75,28 @@ class EdgeNetwork:
     def get_neighbors(self, node_id: int) -> list[int]:
         return list(self.adjacency[node_id])
 
-    def find_any_neighbor_with(self, node_id: int, container_id: int) -> int | None:
-        for neighbor in self.adjacency[node_id]:
+    def get_cluster_neighbors(self, node_id: int) -> list[int]:
+        """Same-cluster neighbors only (no inter-cluster bridge edges)."""
+        cluster = self.cluster_for_node[node_id]
+        return [
+            other
+            for other in range(self.num_nodes)
+            if other != node_id and self.cluster_for_node[other] == cluster
+        ]
+
+    def find_any_neighbor_with(
+        self,
+        node_id: int,
+        container_id: int,
+        *,
+        same_cluster_only: bool = False,
+    ) -> int | None:
+        neighbors = (
+            self.get_cluster_neighbors(node_id)
+            if same_cluster_only
+            else self.adjacency[node_id]
+        )
+        for neighbor in neighbors:
             if self.nodes[neighbor].is_cached(container_id):
                 return neighbor
         return None

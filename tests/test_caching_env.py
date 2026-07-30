@@ -78,7 +78,8 @@ def test_uncached_no_neighbor_cloud_pull(env, config, monkeypatch):
 def test_forward_hit_reward(env, config, monkeypatch):
     env.reset()
     container_id = 9
-    neighbor = env.network.get_neighbors(0)[0]
+    # Prefer a same-cluster neighbor (default forwarding_same_cluster_only=True).
+    neighbor = env.network.get_cluster_neighbors(0)[0]
     env.network.nodes[neighbor].cache_container(container_id)
 
     def fixed_requests():
@@ -92,6 +93,28 @@ def test_forward_hit_reward(env, config, monkeypatch):
 
     assert reward == config["reward_forward_hit"]
     assert env.network.nodes[0].forwards == 1
+
+
+def test_forwarding_disabled_forces_cloud_pull(config, monkeypatch):
+    config = {**config, "enable_forwarding": False}
+    env = CachingEnv(config, seed=42)
+    env.reset()
+    container_id = 9
+    neighbor = env.network.get_cluster_neighbors(0)[0]
+    env.network.nodes[neighbor].cache_container(container_id)
+
+    def fixed_requests():
+        env.request_generator.timestep += 1
+        return [container_id] * config["num_nodes"]
+
+    monkeypatch.setattr(env.request_generator, "generate", fixed_requests)
+
+    noop = 2 * config["num_container_types"]
+    _, reward, _, _, _ = env.step(noop)
+
+    assert reward == config["reward_cloud_pull"]
+    assert env.network.nodes[0].forwards == 0
+    assert env.network.nodes[0].misses == 1
 
 
 def test_episode_truncates_at_episode_length(config):

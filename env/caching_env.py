@@ -7,9 +7,16 @@ from gymnasium import spaces
 from env.container import create_catalog
 from env.edge_network import EdgeNetwork
 from env.request_generator import RequestGenerator
+from env.rewards import score_cache_request
 
 
 class CachingEnv(gym.Env):
+    """Single-node Gymnasium wrapper (active node 0) over EdgeNetwork.
+
+    Step order: apply action → generate requests → score reward → update history.
+    Forwarding honors ``enable_forwarding`` and ``forwarding_same_cluster_only``.
+    """
+
     metadata = {"render_modes": ["human"]}
 
     def __init__(self, config: dict | None = None, seed: int = 42):
@@ -23,6 +30,8 @@ class CachingEnv(gym.Env):
         self.num_container_types = config["num_container_types"]
         self.observation_window = config["observation_window"]
         self.episode_length = config["episode_length"]
+        self.enable_forwarding = bool(config.get("enable_forwarding", True))
+        self.same_cluster_only = bool(config.get("forwarding_same_cluster_only", True))
         self.timestep = 0
         self._seed = seed
 
@@ -55,22 +64,14 @@ class CachingEnv(gym.Env):
         # action == 2*k is no-op
 
     def _process_request(self, container_id: int | None) -> float:
-        if container_id is None:
-            return 0.0
-
-        node = self._active_node()
-        if node.is_cached(container_id):
-            node.touch_container(container_id)
-            node.hits += 1
-            return self.config["reward_local_hit"]
-
-        neighbor = self.network.find_any_neighbor_with(self.active_node, container_id)
-        if neighbor is not None:
-            node.forwards += 1
-            return self.config["reward_forward_hit"]
-
-        node.misses += 1
-        return self.config["reward_cloud_pull"]
+        return score_cache_request(
+            self.network,
+            self.active_node,
+            container_id,
+            self.config,
+            enable_forwarding=self.enable_forwarding,
+            same_cluster_only=self.same_cluster_only,
+        )
 
     def _cache_hit_rate(self) -> float:
         node = self._active_node()
