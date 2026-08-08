@@ -13,6 +13,7 @@ cache_capacity: 5           # slots per node
 zipf_alpha: 1.0
 request_rate: 1             # requests per node per timestep
 traffic_pattern: "shifting"  # stationary, shifting, bursty
+locality_factor: 0.3        # 0=identical node demand, 1=independent rankings
 shift_interval: 500         # timesteps between popularity shifts (if shifting)
 burst_probability: 0.05     # probability of burst per timestep (if bursty)
 burst_multiplier: 10        # demand multiplier during burst
@@ -21,11 +22,13 @@ burst_multiplier: 10        # demand multiplier during burst
 reward_local_hit: 1.0
 reward_forward_hit: 0.5
 reward_cloud_pull: -1.0
-comm_penalty_lambda: 0.0    # communication cost coefficient
+comm_penalty_lambda: 0.0    # communication cost coefficient (Level 3+)
+# Per cache-action redundancy nudge: -= weight * (# neighbors already holding that container)
+overlap_penalty_weight: 0.0
 
-# Communication (unused until week 5, but define now)
+# Communication
 comm_level: 0               # 0=none, 1=neighbor_summary, 2=full_neighbor, 3=selective
-selective_comm_threshold: 0.1  # Q-value margin threshold for Level 3
+selective_comm_threshold: 0.01 # Q-value margin threshold for Level 3 (absolute)
 enable_forwarding: true         # if false, misses go straight to cloud
 forwarding_same_cluster_only: true  # forward only within cluster when enabled
 
@@ -41,6 +44,8 @@ learning_rate: 0.0001
 buffer_size: 100000
 learning_starts: 5000
 batch_size: 128
+train_freq: 4                   # env steps between gradient updates
+# gradient_steps: unset -> num_nodes for multi-agent (one update per node transition)
 gamma: 0.99
 target_update_interval: 1000
 epsilon_start: 1.0

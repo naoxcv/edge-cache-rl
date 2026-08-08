@@ -29,7 +29,7 @@ class MultiSeedEvalCallback(EvalCallback):
         early_stopping_patience: int | None = None,
         early_stopping_min_evals: int = 0,
         verbose: int = 1,
-    ):
+    ) -> None:
         primary_env = _eval_env(config, eval_seeds[0])
         stop_callback = None
         if early_stopping_patience is not None:

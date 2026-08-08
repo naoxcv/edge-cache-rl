@@ -3,7 +3,9 @@ from __future__ import annotations
 import numpy as np
 
 class EdgeNode:
-    def __init__(self, node_id: int, cache_capacity: int):
+    """Single edge-cache node with LRU-ordered container storage and hit/miss counters."""
+
+    def __init__(self, node_id: int, cache_capacity: int) -> None:
         self.node_id = node_id
         self.cache_capacity = cache_capacity
         self.cache: list[int] = []       # list of container IDs, ordered by recency
@@ -16,6 +18,7 @@ class EdgeNode:
         self.forwards = 0
 
     def is_cached(self, container_id: int) -> bool:
+        """Return True if the container is currently in this node's cache."""
         return container_id in self.cache_set
 
     def touch_container(self, container_id: int) -> bool:
@@ -53,11 +56,16 @@ class EdgeNode:
         if len(self.request_history) > observation_window:
             self.request_history.pop(0)
 
-    def get_state(self, num_container_types: int, observation_window: int) -> np.ndarray:
-        """Return observation vector: [cache_binary (K,), utilization (1,), request_freq (K,)]"""
+    def get_cache_binary(self, num_container_types: int) -> np.ndarray:
+        """Length-K binary vector of currently cached containers."""
         cache_binary = np.zeros(num_container_types, dtype=np.float32)
         for container_id in self.cache:
             cache_binary[container_id] = 1.0
+        return cache_binary
+
+    def get_state(self, num_container_types: int, observation_window: int) -> np.ndarray:
+        """Return observation vector: [cache_binary (K,), utilization (1,), request_freq (K,)]"""
+        cache_binary = self.get_cache_binary(num_container_types)
 
         utilization = np.array([len(self.cache) / self.cache_capacity], dtype=np.float32)
 
@@ -70,7 +78,7 @@ class EdgeNode:
 
         return np.concatenate([cache_binary, utilization, request_freq])
 
-    def reset(self):
+    def reset(self) -> None:
         """Clear cache, history, counters."""
         self.cache.clear()
         self.cache_set.clear()

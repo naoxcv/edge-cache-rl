@@ -132,9 +132,11 @@ def main() -> None:
         help="Run name, run dir, or model path (prefers best_model.zip)",
     )
     parser.add_argument("--no-dqn", action="store_true")
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
+    parser.add_argument("--output-dir", type=str, default="results", help="Base output directory")
     args = parser.parse_args()
 
-    config = load_config()
+    config = load_config(args.config)
     ep_len = config["episode_length"]
     seeds = (
         [int(s.strip()) for s in args.seeds.split(",") if s.strip()]

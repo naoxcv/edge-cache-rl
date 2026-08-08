@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import random
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class Container:
+    """Immutable record for one content container with a Zipf popularity rank."""
+
     id: int
     popularity_rank: int  # 0 = most popular (highest Zipf weight)
 

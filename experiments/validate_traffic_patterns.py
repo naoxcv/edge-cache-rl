@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from collections import Counter
 from pathlib import Path
@@ -29,13 +30,15 @@ def _node0_counts(gen: RequestGenerator, steps: int) -> Counter:
     return counts
 
 
-def plot_shift_distribution() -> None:
-    config = load_config()
+def plot_shift_distribution(config_path: str = "configs/default.yaml", shift_plot: Path | None = None, seed: int = 42) -> None:
+    if shift_plot is None:
+        shift_plot = SHIFT_PLOT
+    config = load_config(config_path)
     config["traffic_pattern"] = "shifting"
     config["shift_interval"] = SHIFT_INTERVAL
 
-    catalog = create_catalog(config["num_container_types"], seed=42)
-    gen = RequestGenerator(config, catalog, seed=42)
+    catalog = create_catalog(config["num_container_types"], seed=seed)
+    gen = RequestGenerator(config, catalog, seed=seed)
 
     before = _node0_counts(gen, SHIFT_INTERVAL)
     after = _node0_counts(gen, SHIFT_INTERVAL)
@@ -58,20 +61,22 @@ def plot_shift_distribution() -> None:
     ax.legend()
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
-    SHIFT_PLOT.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(SHIFT_PLOT, dpi=150)
+    shift_plot.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(shift_plot, dpi=150)
     plt.close(fig)
-    print(f"Saved {SHIFT_PLOT}")
+    print(f"Saved {shift_plot}")
 
 
-def plot_burst_spikes() -> None:
-    config = load_config()
+def plot_burst_spikes(config_path: str = "configs/default.yaml", burst_plot: Path | None = None, seed: int = 42) -> None:
+    if burst_plot is None:
+        burst_plot = BURST_PLOT
+    config = load_config(config_path)
     config["traffic_pattern"] = "bursty"
     config["burst_probability"] = 0.05
     config["burst_multiplier"] = 10
 
-    catalog = create_catalog(config["num_container_types"], seed=42)
-    gen = RequestGenerator(config, catalog, seed=42)
+    catalog = create_catalog(config["num_container_types"], seed=seed)
+    gen = RequestGenerator(config, catalog, seed=seed)
 
     steps = 2_000
     per_step_dominant: list[int] = []
@@ -108,15 +113,29 @@ def plot_burst_spikes() -> None:
     axes[1].grid(True, axis="x", alpha=0.3)
 
     fig.tight_layout()
-    BURST_PLOT.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(BURST_PLOT, dpi=150)
+    burst_plot.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(burst_plot, dpi=150)
     plt.close(fig)
-    print(f"Saved {BURST_PLOT} ({len(burst_steps)} burst timesteps in {steps})")
+    print(f"Saved {burst_plot} ({len(burst_steps)} burst timesteps in {steps})")
 
 
 def main() -> None:
-    plot_shift_distribution()
-    plot_burst_spikes()
+    parser = argparse.ArgumentParser(description="Validate traffic patterns (shift + burst)")
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--output-dir", type=str, default=None, help="Base output directory for plots")
+    args = parser.parse_args()
+
+    if args.output_dir is not None:
+        out_base = Path(args.output_dir) / "figures"
+        shift_out = out_base / "traffic_shift_distribution.png"
+        burst_out = out_base / "traffic_burst_spikes.png"
+    else:
+        shift_out = None
+        burst_out = None
+
+    plot_shift_distribution(config_path=args.config, shift_plot=shift_out, seed=args.seed)
+    plot_burst_spikes(config_path=args.config, burst_plot=burst_out, seed=args.seed)
 
 
 if __name__ == "__main__":

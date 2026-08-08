@@ -90,6 +90,7 @@ def main() -> None:
     parser.add_argument("--nodes", type=int, default=None)
     parser.add_argument("--clusters", type=int, default=None)
     parser.add_argument("--traffic", type=str, default=None)
+    parser.add_argument("--locality-factor", type=float, default=None)
     parser.add_argument(
         "--dqn-path",
         type=str,
@@ -102,17 +103,29 @@ def main() -> None:
         action="store_true",
         help="Disable neighbor forwarding (misses go to cloud)",
     )
+    parser.add_argument(
+        "--comm-level",
+        type=int,
+        default=0,
+        choices=[0, 1, 2, 3],
+        help="Communication level for DQN obs (baselines unchanged)",
+    )
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
+    parser.add_argument("--output-dir", type=str, default="results", help="Base output directory")
     args = parser.parse_args()
 
-    config = load_config()
+    config = load_config(args.config)
     if args.nodes is not None:
         config["num_nodes"] = args.nodes
     if args.clusters is not None:
         config["num_clusters"] = args.clusters
     if args.traffic is not None:
         config["traffic_pattern"] = args.traffic
+    if args.locality_factor is not None:
+        config["locality_factor"] = args.locality_factor
     config["forwarding_same_cluster_only"] = True
     config["enable_forwarding"] = not args.no_forwarding
+    config["comm_level"] = args.comm_level
 
     seeds = (
         [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
@@ -124,11 +137,13 @@ def main() -> None:
     print("Multi-node policy comparison")
     print(
         f"  nodes={config['num_nodes']} clusters={config['num_clusters']} "
-        f"traffic={config['traffic_pattern']} forwarding={fwd_label} "
+        f"traffic={config['traffic_pattern']} "
+        f"locality={config.get('locality_factor', 0.0)} forwarding={fwd_label} "
+        f"comm_level={config['comm_level']} "
         f"episodes={args.episodes} seeds={seeds}"
     )
     print("  LRU/LFU: reactive oracle per node; same-cluster forwarding when ON")
-    print("  DQN:     act-then-request shared SB3 policy (Level 0)")
+    print("  DQN:     act-then-request shared SB3 policy")
     print()
 
     model_path = None

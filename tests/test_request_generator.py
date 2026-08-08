@@ -12,6 +12,7 @@ def config():
     cfg = load_config()
     # Most generator unit tests assume a fixed Zipf ranking (no shifts).
     cfg["traffic_pattern"] = "stationary"
+    cfg["locality_factor"] = 0.0
     return cfg
 
 
@@ -180,3 +181,79 @@ def test_peek_matches_generate_when_no_mutation(generator):
     expected = generator.generate()
     generator.reset()
     assert generator.peek() == expected
+
+
+def test_locality_zero_gives_identical_node_rankings(config, catalog):
+    config = dict(config)
+    config["locality_factor"] = 0.0
+    gen = RequestGenerator(config, catalog, seed=42)
+
+    rankings = [gen.popularity_ranking(node) for node in range(gen.num_nodes)]
+    assert all(ranking == rankings[0] for ranking in rankings[1:])
+
+
+def test_locality_one_gives_independent_node_rankings(config, catalog):
+    config = dict(config)
+    config["locality_factor"] = 1.0
+    gen = RequestGenerator(config, catalog, seed=42)
+
+    rankings = [gen.popularity_ranking(node) for node in range(gen.num_nodes)]
+    assert len(set(rankings)) == gen.num_nodes
+
+
+def _rank_distance(left: tuple[int, ...], right: tuple[int, ...]) -> float:
+    right_position = {container_id: rank for rank, container_id in enumerate(right)}
+    return sum(
+        abs(rank - right_position[container_id])
+        for rank, container_id in enumerate(left)
+    ) / len(left)
+
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_locality_point_three_is_more_similar_within_clusters(config, seed):
+    config = dict(config)
+    config["locality_factor"] = 0.3
+    config["num_nodes"] = 12
+    config["num_clusters"] = 3
+    catalog = create_catalog(config["num_container_types"], seed=seed)
+    gen = RequestGenerator(config, catalog, seed=seed)
+
+    within: list[float] = []
+    across: list[float] = []
+    for left in range(gen.num_nodes):
+        for right in range(left + 1, gen.num_nodes):
+            distance = _rank_distance(
+                gen.popularity_ranking(left),
+                gen.popularity_ranking(right),
+            )
+            if gen.cluster_for_node[left] == gen.cluster_for_node[right]:
+                within.append(distance)
+            else:
+                across.append(distance)
+
+    assert sum(within) / len(within) < sum(across) / len(across)
+
+
+def test_heterogeneous_reset_reproduces_requests_and_rankings(config, catalog):
+    config = dict(config)
+    config["locality_factor"] = 0.3
+    gen = RequestGenerator(config, catalog, seed=42)
+    rankings_before = [
+        gen.popularity_ranking(node) for node in range(gen.num_nodes)
+    ]
+    requests_before = [gen.generate() for _ in range(10)]
+
+    gen.reset()
+
+    assert [
+        gen.popularity_ranking(node) for node in range(gen.num_nodes)
+    ] == rankings_before
+    assert [gen.generate() for _ in range(10)] == requests_before
+
+
+@pytest.mark.parametrize("factor", [-0.1, 1.1])
+def test_invalid_locality_factor_raises(config, catalog, factor):
+    config = dict(config)
+    config["locality_factor"] = factor
+    with pytest.raises(ValueError, match="locality_factor"):
+        RequestGenerator(config, catalog, seed=42)

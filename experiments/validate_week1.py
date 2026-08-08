@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -103,8 +104,9 @@ def sanity_check(result: dict) -> None:
         )
 
 
-def plot_results(lru: dict, lfu: dict) -> None:
-    PLOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+def plot_results(lru: dict, lfu: dict, out_path: Path | None = None) -> None:
+    dest = out_path if out_path is not None else PLOT_PATH
+    dest.parent.mkdir(parents=True, exist_ok=True)
 
     plt.figure(figsize=(10, 6))
     plt.plot(lru["cumulative_rewards"], label="LRU")
@@ -115,12 +117,23 @@ def plot_results(lru: dict, lfu: dict) -> None:
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(PLOT_PATH, dpi=150)
+    plt.savefig(dest, dpi=150)
     plt.close()
 
 
 def main() -> None:
-    config = load_config()
+    parser = argparse.ArgumentParser(description="Week-1 baseline validation")
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--output-dir", type=str, default=None, help="Base output directory for plots")
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+
+    if args.output_dir is not None:
+        plot_path = Path(args.output_dir) / "figures" / "week1_baselines.png"
+    else:
+        plot_path = PLOT_PATH
 
     print("Running week-1 baseline validation")
     print(f"  steps: {NUM_STEPS}")
@@ -130,8 +143,8 @@ def main() -> None:
         f"nodes={config['num_nodes']}"
     )
 
-    lru = run_policy("LRU", LRUPolicy(), config)
-    lfu = run_policy("LFU", LFUPolicy(), config)
+    lru = run_policy("LRU", LRUPolicy(), config, seed=args.seed)
+    lfu = run_policy("LFU", LFUPolicy(), config, seed=args.seed)
 
     print_metrics(lru)
     print_metrics(lfu)
@@ -139,8 +152,8 @@ def main() -> None:
     sanity_check(lru)
     sanity_check(lfu)
 
-    plot_results(lru, lfu)
-    print(f"\nSaved plot to {PLOT_PATH}")
+    plot_results(lru, lfu, out_path=plot_path)
+    print(f"\nSaved plot to {plot_path}")
 
 
 if __name__ == "__main__":

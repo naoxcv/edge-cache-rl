@@ -75,7 +75,7 @@ def create_single_node_dqn(
         learning_starts=int(config.get("learning_starts", 5000)),
         batch_size=int(config.get("batch_size", 128)),
         gamma=float(config.get("gamma", 0.99)),
-        train_freq=4,
+        train_freq=int(config.get("train_freq", 4)),
         gradient_steps=1,
         target_update_interval=config["target_update_interval"],
         exploration_initial_eps=config["epsilon_start"],

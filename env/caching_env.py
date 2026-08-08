@@ -6,6 +6,7 @@ from gymnasium import spaces
 
 from env.container import create_catalog
 from env.edge_network import EdgeNetwork
+from env.edge_node import EdgeNode
 from env.request_generator import RequestGenerator
 from env.rewards import score_cache_request
 
@@ -19,7 +20,7 @@ class CachingEnv(gym.Env):
 
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, config: dict | None = None, seed: int = 42):
+    def __init__(self, config: dict | None = None, seed: int = 42) -> None:
         if config is None:
             from configs import load_config
 
@@ -37,7 +38,12 @@ class CachingEnv(gym.Env):
 
         self.catalog = create_catalog(self.num_container_types, seed=seed)
         self.network = EdgeNetwork(config)
-        self.request_generator = RequestGenerator(config, self.catalog, seed=seed)
+        self.request_generator = RequestGenerator(
+            config,
+            self.catalog,
+            seed=seed,
+            cluster_for_node=self.network.cluster_for_node,
+        )
 
         obs_size = 2 * self.num_container_types + 1
         self.observation_space = spaces.Box(
@@ -45,7 +51,7 @@ class CachingEnv(gym.Env):
         )
         self.action_space = spaces.Discrete(2 * self.num_container_types + 1)
 
-    def _active_node(self):
+    def _active_node(self) -> EdgeNode:
         return self.network.nodes[self.active_node]
 
     def _get_observation(self) -> np.ndarray:
@@ -80,13 +86,17 @@ class CachingEnv(gym.Env):
             return 0.0
         return node.hits / total
 
-    def reset(self, *, seed: int | None = None, options: dict | None = None):
+    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[np.ndarray, dict]:
+        """Reset the environment, optionally re-seeding catalog and traffic."""
         super().reset(seed=seed)
         if seed is not None:
             self._seed = seed
             self.catalog = create_catalog(self.num_container_types, seed=seed)
             self.request_generator = RequestGenerator(
-                self.config, self.catalog, seed=seed
+                self.config,
+                self.catalog,
+                seed=seed,
+                cluster_for_node=self.network.cluster_for_node,
             )
 
         self.timestep = 0
@@ -97,7 +107,8 @@ class CachingEnv(gym.Env):
         info = {"cache_hit_rate": self._cache_hit_rate(), "timestep": self.timestep}
         return observation, info
 
-    def step(self, action: int):
+    def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict]:
+        """Apply action, generate request, score reward, and advance timestep."""
         self._apply_action(int(action))
 
         requests = self.request_generator.generate()
@@ -120,7 +131,8 @@ class CachingEnv(gym.Env):
 
         return observation, reward, terminated, truncated, info
 
-    def render(self):
+    def render(self) -> None:
+        """Print a one-line status summary for the active node."""
         node = self._active_node()
         print(
             f"t={self.timestep} node={self.active_node} "

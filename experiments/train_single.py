@@ -9,12 +9,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.single_agent import train_single_node_dqn
+from configs import load_config
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train single-node DQN on CachingEnv")
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
     parser.add_argument("--timesteps", type=int, default=100_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--output-dir", type=str, default="results", help="Base output directory")
     parser.add_argument(
         "--run-name",
         type=str,
@@ -45,8 +48,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    config = load_config(args.config)
+
     _, run_paths = train_single_node_dqn(
         total_timesteps=args.timesteps,
+        config=config,
         seed=args.seed,
         run_name=args.run_name,
         save_path=args.save_path,

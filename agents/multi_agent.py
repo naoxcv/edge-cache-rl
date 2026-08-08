@@ -13,7 +13,7 @@ from stable_baselines3.common.utils import set_random_seed
 from configs import load_config
 from env.multi_agent_caching_env import MultiAgentCachingEnv, agent_id
 from env.wrappers import RandomTrafficSeedWrapper
-from run_paths import RunPaths, resolve_model_path, resolve_run_name
+from run_paths import RunPaths, resolve_model_path
 
 
 def create_multi_agent_env(
@@ -58,6 +58,19 @@ def _exploration_fraction(config: dict, total_timesteps: int) -> float:
     return min(1.0, decay_steps / total_timesteps)
 
 
+def _gradient_steps(config: dict) -> int:
+    """Gradient steps per training call.
+
+    The shared-policy loop writes one transition per node per env step but trains
+    every 4th env step, so a single gradient step would see 1 update per
+    ``4 * num_nodes`` transitions. Defaulting to ``num_nodes`` restores the
+    single-agent update-to-data ratio, which from-scratch training needs.
+    """
+    if "gradient_steps" in config:
+        return int(config["gradient_steps"])
+    return max(1, int(config["num_nodes"]))
+
+
 def _parse_eval_seeds(config: dict) -> list[int]:
     seeds = config.get("eval_seeds", [int(config.get("train_seed", 42))])
     return [int(s) for s in seeds]
@@ -76,14 +89,11 @@ def create_shared_dqn(
     total_timesteps: int,
     tensorboard_log: str | None,
     verbose: int,
-    exploration_initial_eps: float | None = None,
 ) -> DQN:
-    """SB3 DQN with single-node spaces (shared across all nodes at Level 0)."""
+    """SB3 DQN with per-node spaces (shared across all nodes; obs width follows comm_level)."""
     probe = MultiAgentCachingEnv(config, seed=seed)
     dummy = _NodeSpaceEnv(probe.observation_space, probe.action_space)
     set_random_seed(seed)
-    if exploration_initial_eps is None:
-        exploration_initial_eps = float(config["epsilon_start"])
 
     return DQN(
         policy="MlpPolicy",
@@ -93,10 +103,10 @@ def create_shared_dqn(
         learning_starts=int(config.get("learning_starts", 5000)),
         batch_size=int(config.get("batch_size", 128)),
         gamma=float(config.get("gamma", 0.99)),
-        train_freq=4,
-        gradient_steps=1,
+        train_freq=int(config.get("train_freq", 4)),
+        gradient_steps=_gradient_steps(config),
         target_update_interval=config["target_update_interval"],
-        exploration_initial_eps=exploration_initial_eps,
+        exploration_initial_eps=float(config["epsilon_start"]),
         exploration_final_eps=config["epsilon_end"],
         exploration_fraction=_exploration_fraction(config, total_timesteps),
         policy_kwargs={"net_arch": list(config["hidden_layers"])},
@@ -106,34 +116,64 @@ def create_shared_dqn(
     )
 
 
-def warm_start_from_pretrained(model: DQN, pretrained_path: str | Path) -> Path:
-    """Copy Q-network weights from a single-node (or prior shared) SB3 DQN zip."""
-    path = resolve_model_path(pretrained_path, prefer_best=True)
-    if path is None:
-        raise FileNotFoundError(f"Pretrained model not found: {pretrained_path}")
-
-    pretrained = DQN.load(str(path))
-    if model.observation_space.shape != pretrained.observation_space.shape:
-        raise ValueError(
-            f"Obs space mismatch: model {model.observation_space.shape} vs "
-            f"pretrained {pretrained.observation_space.shape}"
-        )
-    if model.action_space.n != pretrained.action_space.n:
-        raise ValueError(
-            f"Action space mismatch: model {model.action_space.n} vs "
-            f"pretrained {pretrained.action_space.n}"
-        )
-
-    model.policy.load_state_dict(pretrained.policy.state_dict())
-    return path
-
-
 def _select_action(model: DQN, obs: np.ndarray) -> int:
     """Epsilon-greedy action using SB3 DQN's exploration schedule."""
     if np.random.rand() < model.exploration_rate:
         return int(model.action_space.sample())
     action, _ = model.predict(obs, deterministic=True)
     return int(action)
+
+
+def _q_values(model: DQN, obs: np.ndarray):
+    import torch
+
+    obs_tensor, _ = model.policy.obs_to_tensor(obs)
+    with torch.no_grad():
+        q = model.policy.q_net(obs_tensor)[0]
+    return q
+
+
+def _q_margin(model: DQN, obs: np.ndarray) -> float:
+    import torch
+
+    q = _q_values(model, obs)
+    if q.numel() < 2:
+        return float("inf")
+    top2 = torch.topk(q, k=2).values
+    return float(top2[0] - top2[1])
+
+
+def select_action_for_obs(
+    model: DQN,
+    obs: np.ndarray,
+    *,
+    config: dict,
+    deterministic: bool = False,
+) -> tuple[int, bool]:
+    """Choose action; for Level 3, gate neighbor features by Q-margin.
+
+    Returns ``(action, communicated)``.
+    """
+    comm_level = int(config.get("comm_level", 0))
+    local_dim = 2 * int(config["num_container_types"]) + 1
+    communicated = False
+    used = obs
+
+    if comm_level == 3 and obs.shape[-1] > local_dim:
+        local = np.array(obs, copy=True)
+        local[local_dim:] = 0.0
+        margin = _q_margin(model, local)
+        threshold = float(config.get("selective_comm_threshold", 0.1))
+        communicated = margin < threshold
+        used = obs if communicated else local
+
+    if deterministic:
+        action, _ = model.predict(used, deterministic=True)
+        return int(action), communicated
+    if np.random.rand() < model.exploration_rate:
+        return int(model.action_space.sample()), communicated
+    action, _ = model.predict(used, deterministic=True)
+    return int(action), communicated
 
 
 def evaluate_shared_dqn(
@@ -146,26 +186,51 @@ def evaluate_shared_dqn(
     """Deterministic shared-policy rollout on MultiAgentCachingEnv."""
     env = MultiAgentCachingEnv(config, seed=seed)
     episode_returns: list[float] = []
+    episode_task: list[float] = []
+    episode_pen: list[float] = []
+    episode_comm: list[float] = []
+    episode_comm_events: list[int] = []
 
     for ep in range(num_episodes):
         obs, _ = env.reset(seed=seed if ep == 0 else None)
         total = 0.0
+        task = 0.0
+        pen = 0.0
+        comm_pen = 0.0
         while True:
-            actions = {
-                aid: int(model.predict(agent_obs, deterministic=True)[0])
-                for aid, agent_obs in obs.items()
-            }
-            obs, rewards, terminateds, truncateds, _ = env.step(actions)
-            total += float(sum(rewards.values()))
+            actions: dict[str, int] = {}
+            for aid, agent_obs in obs.items():
+                action, communicated = select_action_for_obs(
+                    model, agent_obs, config=config, deterministic=True
+                )
+                actions[aid] = action
+                if communicated:
+                    cpen = env.record_communication(int(aid), True)
+                    comm_pen += cpen
+
+            obs, rewards, terminateds, truncateds, infos = env.step(actions)
+            for aid, r in rewards.items():
+                total += float(r)
+                task += float(infos[aid].get("task_reward", r))
+                pen += float(infos[aid].get("overlap_penalty", 0.0))
             if terminateds.get("__all__") or truncateds.get("__all__"):
                 break
+        total += comm_pen
         episode_returns.append(total)
+        episode_task.append(task)
+        episode_pen.append(pen)
+        episode_comm.append(comm_pen)
+        episode_comm_events.append(int(env._episode_comm_events))
 
     stats = env.network_stats()
     return {
         "policy": "DQN",
         "ep_rew_mean": float(np.mean(episode_returns)),
         "ep_rew_std": float(np.std(episode_returns)),
+        "task_return_mean": float(np.mean(episode_task)),
+        "overlap_penalty_mean": float(np.mean(episode_pen)),
+        "comm_penalty_mean": float(np.mean(episode_comm)),
+        "comm_events_mean": float(np.mean(episode_comm_events)),
         "num_episodes": len(episode_returns),
         **stats,
     }
@@ -192,8 +257,6 @@ def train_multi_agent_dqn(
     seed: int = 42,
     *,
     run_name: str | None = None,
-    save_path: str | None = None,
-    pretrained_path: str | Path | None = None,
     randomize_traffic: bool | None = None,
     tensorboard_log: str | None = None,
     eval_freq: int | None = None,
@@ -201,24 +264,22 @@ def train_multi_agent_dqn(
     early_stopping: bool | None = None,
     verbose: int = 1,
 ) -> tuple[DQN, RunPaths]:
-    """Train Level-0 shared-policy SB3 DQN on MultiAgentCachingEnv.
+    """Train shared-policy SB3 DQN on MultiAgentCachingEnv (comm levels 0-3).
 
     Each env timestep: every node acts with the same DQN (parameter sharing),
     all transitions are written to one replay buffer. Deterministic multi-seed
     eval + early stopping mirror single-agent training.
 
-    If ``pretrained_path`` is set (e.g. ``dqn_shifting``), copy that model's
-    Q-network weights before fine-tuning. Exploration starts at 0.5 unless
-    config overrides ``epsilon_start`` explicitly for the warm-start run.
+    Level 3: Q-margin selective communication -- neighbor features are used only
+    when the local-only Q-margin is below ``selective_comm_threshold``; each
+    communication event costs ``comm_penalty_lambda``.
     """
     if config is None:
         config = load_config()
     config = dict(config)
 
-    if save_path is not None and run_name is None:
-        run_name = resolve_run_name(save_path)
     if run_name is None:
-        run_name = "dqn_multi_level0"
+        run_name = f"dqn_multi_level{int(config.get('comm_level', 0))}"
 
     train_seed = int(config.get("train_seed", seed))
     if randomize_traffic is None:
@@ -232,66 +293,46 @@ def train_multi_agent_dqn(
 
     run_paths = RunPaths.create(run_name)
     run_paths.ensure_dirs()
-    if pretrained_path is not None:
-        config["pretrained_path"] = str(pretrained_path)
     _snapshot_config(config, run_paths)
     if tensorboard_log is None:
         tensorboard_log = str(run_paths.tensorboard)
 
-    # Softer exploration when fine-tuning a working single-node policy.
-    exploration_initial_eps = float(config["epsilon_start"])
-    if pretrained_path is not None and "warm_start_epsilon_start" in config:
-        exploration_initial_eps = float(config["warm_start_epsilon_start"])
-    elif pretrained_path is not None:
-        exploration_initial_eps = min(exploration_initial_eps, 0.5)
-
     ma_env = create_multi_agent_env(
         config, seed=train_seed, randomize_traffic=randomize_traffic
     )
+    caching_env = ma_env.env if isinstance(ma_env, RandomTrafficSeedWrapper) else ma_env
     model = create_shared_dqn(
         config,
         seed=train_seed,
         total_timesteps=total_timesteps,
         tensorboard_log=tensorboard_log,
         verbose=verbose,
-        exploration_initial_eps=exploration_initial_eps,
     )
 
     eval_seeds = _parse_eval_seeds(config)
     best_mean = -float("inf")
-    if pretrained_path is not None:
-        loaded = warm_start_from_pretrained(model, pretrained_path)
-        if verbose:
-            print(f"Warm-started from {loaded}", flush=True)
-            zero_shot, per_seed = _multi_seed_eval(
-                model, config, eval_seeds, n_eval_episodes
-            )
-            seed_summary = "  ".join(f"seed={s}:{per_seed[s]:.1f}" for s in eval_seeds)
-            print(
-                f"Zero-shot eval mean_reward={zero_shot:.2f}  ({seed_summary})",
-                flush=True,
-            )
-            best_mean = zero_shot
-            model.save(str(run_paths.root / "best_model"))
+    comm_level = int(config.get("comm_level", 0))
 
-    # SB3 progress / exploration bookkeeping
     model._setup_learn(total_timesteps, callback=None, reset_num_timesteps=True, tb_log_name="DQN")
 
     obs_dict, _ = ma_env.reset(seed=train_seed)
     learning_starts = int(config.get("learning_starts", 5000))
-    train_freq = 4
+    train_freq = int(config.get("train_freq", 4))
     patience = int(config.get("early_stopping_patience", 10)) if early_stopping else None
     min_evals = int(config.get("early_stopping_min_evals", 5))
     no_improve = 0
     n_evals = 0
     evaluations_timesteps: list[int] = []
     evaluations_means: list[list[float]] = []
+    local_dim = 2 * int(config["num_container_types"]) + 1
 
     if verbose:
         print(
             f"Training shared-policy SB3 DQN: nodes={config['num_nodes']} "
-            f"traffic={config.get('traffic_pattern')} timesteps={total_timesteps} "
-            f"eps_start={exploration_initial_eps}",
+            f"comm_level={comm_level} traffic={config.get('traffic_pattern')} "
+            f"timesteps={total_timesteps} eps_start={config['epsilon_start']} "
+            f"obs_dim={model.observation_space.shape[0]} "
+            f"gradient_steps={model.gradient_steps}",
             flush=True,
         )
 
@@ -300,22 +341,57 @@ def train_multi_agent_dqn(
         model._on_step()
 
         actions: dict[str, int] = {}
+        used_obs: dict[str, np.ndarray] = {}
+        comm_pens: dict[str, float] = {}
         for aid, obs in obs_dict.items():
-            actions[aid] = _select_action(model, obs)
+            if comm_level == 3:
+                if np.random.rand() < model.exploration_rate:
+                    used = obs
+                    action = int(model.action_space.sample())
+                    communicated = True
+                else:
+                    action, communicated = select_action_for_obs(
+                        model, obs, config=config, deterministic=True
+                    )
+                    if not communicated:
+                        used = np.array(obs, copy=True)
+                        used[local_dim:] = 0.0
+                    else:
+                        used = obs
+                cpen = (
+                    caching_env.record_communication(int(aid), True)
+                    if communicated
+                    else 0.0
+                )
+                used_obs[aid] = used
+                actions[aid] = action
+                comm_pens[aid] = cpen
+            else:
+                used_obs[aid] = obs
+                actions[aid] = _select_action(model, obs)
+                comm_pens[aid] = 0.0
 
         next_obs_dict, rewards, terminateds, truncateds, _ = ma_env.step(actions)
         terminated = bool(terminateds.get("__all__", False))
         truncated = bool(truncateds.get("__all__", False))
         episode_done = terminated or truncated
-        # Mark timeouts so SB3 still bootstraps on truncated episode ends.
         transition_info = {"TimeLimit.truncated": truncated} if truncated else {}
 
-        for aid, obs in obs_dict.items():
+        for aid, obs in used_obs.items():
+            next_obs = next_obs_dict[aid]
+            if comm_level == 3 and next_obs.shape[-1] > local_dim:
+                next_local = np.array(next_obs, copy=True)
+                next_local[local_dim:] = 0.0
+                next_margin = _q_margin(model, next_local)
+                threshold = float(config.get("selective_comm_threshold", 0.01))
+                if next_margin >= threshold:
+                    next_obs = next_local
+            r = float(rewards[aid]) + float(comm_pens[aid])
             model.replay_buffer.add(
                 obs,
-                next_obs_dict[aid],
+                next_obs,
                 np.array([actions[aid]]),
-                np.array([rewards[aid]], dtype=np.float32),
+                np.array([r], dtype=np.float32),
                 np.array([episode_done]),
                 [transition_info],
             )
@@ -394,6 +470,7 @@ def evaluate_random_policy(
     num_episodes: int = 1,
     seed: int = 42,
 ) -> dict[str, Any]:
+    """Run uniform-random actions on MultiAgentCachingEnv and return aggregate stats."""
     if config is None:
         config = load_config()
 
@@ -453,20 +530,30 @@ def reactive_multi_baseline_step(
 
     for node_id in range(env.num_nodes):
         requested = requests[node_id]
-        reward = env._process_request(node_id, requested)
+        task_r = env._process_request(node_id, requested)
         if requested is not None:
             env.network.nodes[node_id].record_request(
                 requested, env.observation_window
             )
         aid = agent_id(node_id)
-        rewards[aid] = reward
+        rewards[aid] = task_r
+        env._episode_task_reward += task_r
         node = env.network.nodes[node_id]
         actions[aid] = policies[node_id].act(
             obs[aid], requested, cache=node.cache
         )
 
+    # Simultaneous: score overlap on pre-action caches, then mutate.
+    pens: dict[str, tuple[float, int]] = {
+        aid: env._score_cache_overlap(int(aid), action)
+        for aid, action in actions.items()
+    }
     for aid, action in actions.items():
         env._apply_action(int(aid), action)
+        pen, overlap_n = pens[aid]
+        rewards[aid] = float(rewards[aid]) + pen
+        env._episode_overlap += overlap_n
+        env._episode_overlap_penalty += pen
 
     env.timestep += 1
     truncated = env.timestep >= env.episode_length

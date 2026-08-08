@@ -18,26 +18,32 @@ class RunPaths:
 
     @property
     def model(self) -> Path:
+        """Path to the final model checkpoint."""
         return self.root / "model.zip"
 
     @property
     def best_model(self) -> Path:
+        """Path to the best model checkpoint (by eval reward)."""
         return self.root / "best_model.zip"
 
     @property
     def evaluations(self) -> Path:
+        """Path to the evaluation results archive."""
         return self.root / "evaluations.npz"
 
     @property
     def config_snapshot(self) -> Path:
+        """Path to the saved training configuration."""
         return self.root / "config.yaml"
 
     @property
     def tensorboard(self) -> Path:
+        """Path to the TensorBoard log directory."""
         return self.root / "tensorboard"
 
     @classmethod
     def create(cls, run_name: str | None = None) -> RunPaths:
+        """Create a RunPaths for the given name, defaulting to a timestamped name."""
         if run_name is None:
             run_name = f"dqn_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         root = RUNS_DIR / run_name
@@ -45,11 +51,13 @@ class RunPaths:
         return cls(root=root)
 
     def ensure_dirs(self) -> None:
+        """Create the run root and TensorBoard directories if they don't exist."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.tensorboard.mkdir(parents=True, exist_ok=True)
 
 
 def figure_path(name: str) -> Path:
+    """Return the path for a named figure file, creating the figures directory if needed."""
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     return FIGURES_DIR / name
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from env.edge_network import EdgeNetwork
 
@@ -45,3 +45,28 @@ def score_cache_request(
 
     node.misses += 1
     return float(config["reward_cloud_pull"])
+
+
+def cache_action_overlap_penalty(
+    network: EdgeNetwork,
+    node_id: int,
+    container_id: int,
+    neighbor_ids: Sequence[int],
+    *,
+    weight: float,
+) -> tuple[float, int]:
+    """One-shot penalty when newly caching something neighbors already hold.
+
+    ``penalty = -weight * #{neighbors that already cache container_id}``
+
+    Callers should skip this when the container is already in the local cache.
+    Applied only at insert time (not every timestep), so task rewards stay
+    dominant.
+    """
+    if weight <= 0.0 or not neighbor_ids:
+        return 0.0, 0
+
+    overlap = sum(
+        1 for n in neighbor_ids if network.nodes[n].is_cached(container_id)
+    )
+    return -float(weight) * overlap, overlap

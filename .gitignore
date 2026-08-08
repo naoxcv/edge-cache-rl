@@ -6,6 +6,8 @@ __pycache__/
 .DS_Store
 .mypy_cache/
 .ruff_cache/
+node_modules/
+dashboard/frontend/dist/
 
 # Training artifacts (keep configs/evals in git if desired; ignore heavy files)
 results/tb_logs/

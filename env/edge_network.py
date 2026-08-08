@@ -6,7 +6,9 @@ from env.edge_node import EdgeNode
 
 
 class EdgeNetwork:
-    def __init__(self, config: dict):
+    """Graph of EdgeNodes organized into clusters with latency-aware forwarding."""
+
+    def __init__(self, config: dict) -> None:
         self.config = config
         self.num_nodes = config["num_nodes"]
         self.num_clusters = config["num_clusters"]
@@ -73,6 +75,7 @@ class EdgeNetwork:
         return matrix
 
     def get_neighbors(self, node_id: int) -> list[int]:
+        """Return all adjacent node IDs (intra- and inter-cluster)."""
         return list(self.adjacency[node_id])
 
     def get_cluster_neighbors(self, node_id: int) -> list[int]:
@@ -91,6 +94,7 @@ class EdgeNetwork:
         *,
         same_cluster_only: bool = False,
     ) -> int | None:
+        """Return the first neighbor caching container_id, or None."""
         neighbors = (
             self.get_cluster_neighbors(node_id)
             if same_cluster_only
@@ -102,8 +106,10 @@ class EdgeNetwork:
         return None
 
     def get_forwarding_cost(self, from_node: int, to_node: int) -> float:
+        """Return the latency in ms for forwarding between two nodes."""
         return float(self.latency_matrix[from_node, to_node])
 
     def reset(self) -> None:
+        """Reset all nodes' caches, histories, and counters."""
         for node in self.nodes:
             node.reset()

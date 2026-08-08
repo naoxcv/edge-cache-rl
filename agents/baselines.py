@@ -29,6 +29,8 @@ def _cache_full(observation: np.ndarray) -> bool:
 
 
 class LRUPolicy:
+    """Baseline that caches every miss, evicting the least-recently-used item."""
+
     def act(
         self,
         observation: np.ndarray,
@@ -36,6 +38,7 @@ class LRUPolicy:
         *,
         cache: list[int] | None = None,
     ) -> int:
+        """Return the cache/evict/no-op action for the current request."""
         k = _num_container_types(observation)
 
         if requested is None or _is_cached(observation, requested):
@@ -49,6 +52,8 @@ class LRUPolicy:
 
 
 class LFUPolicy:
+    """Baseline that evicts the least-frequently-used item on a cache miss."""
+
     def _lfu_victim(
         self, observation: np.ndarray, cached: list[int]
     ) -> int:
@@ -63,6 +68,7 @@ class LFUPolicy:
         *,
         cache: list[int] | None = None,
     ) -> int:
+        """Return the cache/evict/no-op action for the current request."""
         k = _num_container_types(observation)
 
         if requested is None or _is_cached(observation, requested):
