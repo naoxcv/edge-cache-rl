@@ -8,7 +8,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.multi_agent import evaluate_random_policy, train_multi_agent_dqn
+from agents.multi_agent import (
+    evaluate_random_policy,
+    train_multi_agent_dqn,
+    train_idqn_agent_dqn,
+)
 from configs import load_config
 
 
@@ -27,8 +31,8 @@ def _apply_common(config: dict, args: argparse.Namespace) -> None:
         config["overlap_penalty_weight"] = float(args.overlap_penalty)
     if hasattr(args, "comm_penalty") and args.comm_penalty is not None:
         config["comm_penalty_lambda"] = float(args.comm_penalty)
-    if hasattr(args, "gradient_steps") and args.gradient_steps is not None:
-        config["gradient_steps"] = int(args.gradient_steps)
+    if hasattr(args, "comm_threshold") and args.comm_threshold is not None:
+        config["selective_comm_threshold"] = float(args.comm_threshold)
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
@@ -94,6 +98,38 @@ def cmd_train(args: argparse.Namespace) -> None:
     print(f"  best model:  {run_paths.best_model}")
 
 
+def cmd_train_idqn(args: argparse.Namespace) -> None:
+    """Train independent DQN (IDQN): one SB3 DQN per node."""
+    config = load_config(args.config)
+    _apply_common(config, args)
+    config["forwarding_same_cluster_only"] = True
+    if args.seed is not None:
+        config["train_seed"] = args.seed
+    if args.idqn_gradient_steps is not None:
+        config["idqn_gradient_steps"] = int(args.idqn_gradient_steps)
+
+    run_name = args.run_name
+    if run_name is None:
+        level = config["comm_level"]
+        run_name = f"dqn_idqn_level{level}"
+
+    _, run_paths = train_idqn_agent_dqn(
+        total_timesteps=args.timesteps,
+        config=config,
+        run_name=run_name,
+        early_stopping=not args.no_early_stopping,
+        eval_freq=args.eval_freq,
+    )
+
+    print(f"Run directory: {run_paths.root}")
+    for i in range(int(config["num_nodes"])):
+        best = run_paths.root / f"best_model_node{i}.zip"
+        if best.exists():
+            print(f"  node {i} best: {best}")
+        else:
+            print(f"  node {i} best: (missing)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Multi-agent verify/train (comm levels 0-3)")
     parser.add_argument(
@@ -146,6 +182,12 @@ def main() -> None:
         help="Override comm_penalty_lambda (Level-3 cost per communication event)",
     )
     train.add_argument(
+        "--comm-threshold",
+        type=float,
+        default=None,
+        help="Override selective_comm_threshold (Level-3 Q-margin gate)",
+    )
+    train.add_argument(
         "--gradient-steps",
         type=int,
         default=None,
@@ -158,6 +200,55 @@ def main() -> None:
         help="Disable early stopping on eval plateau",
     )
     train.set_defaults(func=cmd_train)
+
+    train_idqn = sub.add_parser(
+        "train-idqn",
+        help="Train Independent DQN (IDQN): one SB3 DQN per node.",
+    )
+    train_idqn.add_argument("--timesteps", type=int, default=200_000)
+    train_idqn.add_argument("--seed", type=int, default=None)
+    train_idqn.add_argument("--run-name", type=str, default=None)
+    train_idqn.add_argument("--nodes", type=int, default=None)
+    train_idqn.add_argument("--clusters", type=int, default=None)
+    train_idqn.add_argument("--traffic", type=str, default="shifting")
+    train_idqn.add_argument(
+        "--locality-factor",
+        type=float,
+        default=None,
+        help="Per-node demand heterogeneity (0=identical, 1=independent)",
+    )
+    train_idqn.add_argument("--comm-level", type=int, default=0, choices=[0, 1, 2, 3])
+    train_idqn.add_argument(
+        "--overlap-penalty",
+        type=float,
+        default=None,
+        help="Override overlap_penalty_weight (one-shot cost when caching a neighbor-held container)",
+    )
+    train_idqn.add_argument(
+        "--comm-penalty",
+        type=float,
+        default=None,
+        help="Override comm_penalty_lambda (Level-3 cost per communication event)",
+    )
+    train_idqn.add_argument(
+        "--comm-threshold",
+        type=float,
+        default=None,
+        help="Override selective_comm_threshold (Level-3 Q-margin gate)",
+    )
+    train_idqn.add_argument("--eval-freq", type=int, default=None)
+    train_idqn.add_argument(
+        "--idqn-gradient-steps",
+        type=int,
+        default=None,
+        help="Gradient steps per train call per node (default: 1)",
+    )
+    train_idqn.add_argument(
+        "--no-early-stopping",
+        action="store_true",
+        help="Disable early stopping on eval plateau",
+    )
+    train_idqn.set_defaults(func=cmd_train_idqn)
 
     args = parser.parse_args()
     args.func(args)

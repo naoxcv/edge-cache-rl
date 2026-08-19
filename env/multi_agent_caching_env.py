@@ -17,52 +17,77 @@ def agent_id(node_id: int) -> str:
     return str(node_id)
 
 
-def local_obs_size(num_container_types: int) -> int:
-    """Return the per-node local observation dimension (2K+1)."""
-    return 2 * num_container_types + 1
+def local_obs_size(num_container_types: int, cache_capacity: int) -> int:
+    """Per-node local observation dimension.
+
+    Layout: cache slots (C×K) + utilization (1) + request freq (K)
+    + pending request one-hot (K) + needs_decision (1).
+    """
+    return cache_capacity * num_container_types + 2 * num_container_types + 2
 
 
-def neighbor_feature_size(comm_level: int, num_container_types: int) -> int:
+def neighbor_feature_size(
+    comm_level: int, num_container_types: int, cache_capacity: int
+) -> int:
     """Per-neighbor feature width for a communication level."""
     if comm_level <= 0:
         return 0
     if comm_level in (1, 3):
-        # L1 always-on summary; L3 selective uses the same cache-binary features.
         return num_container_types
     if comm_level == 2:
-        return local_obs_size(num_container_types)
+        return local_obs_size(num_container_types, cache_capacity)
     raise ValueError(f"Unsupported comm_level={comm_level} (expected 0–3)")
 
 
 def observation_size(
-    num_container_types: int, *, comm_level: int, max_neighbors: int
+    num_container_types: int,
+    *,
+    comm_level: int,
+    max_neighbors: int,
+    cache_capacity: int,
 ) -> int:
     """Return total observation width given communication level and neighbor count."""
-    local = local_obs_size(num_container_types)
+    local = local_obs_size(num_container_types, cache_capacity)
     if comm_level <= 0:
         return local
-    return local + max_neighbors * neighbor_feature_size(comm_level, num_container_types)
+    return local + max_neighbors * neighbor_feature_size(
+        comm_level, num_container_types, cache_capacity
+    )
+
+
+def needs_decision_from_obs(obs: np.ndarray) -> bool:
+    """True when the last local feature flags a full-cache miss."""
+    return bool(np.asarray(obs).reshape(-1)[-1] > 0.5)
 
 
 class MultiAgentCachingEnv(gym.Env):
     """Multi-node caching env with per-agent dict observations/rewards.
 
     Step order (all nodes each timestep):
-      1. Apply each node's action
-      2. Generate one request per node
-      3. Score rewards (local hit / optional forward / cloud)
-      4. Update request histories
+      1. Score each node's *pending* request against the current caches
+         (local hit / same-cluster forward / cloud)
+      2. Admit the missed item if needed (see action space)
+      3. Record request histories and draw the next pending requests
+
+    Action space is eviction-only: ``Discrete(C+1)`` with C = cache_capacity.
+      ``0 … C-1`` — on a full-cache miss, evict that LRU-ordered slot and
+      insert the pending request
+      ``C`` — reject (do not cache the pending request)
+    Hits and non-full misses need no decision: the env ignores the action
+    (non-full misses are inserted automatically).
 
     Communication levels (``comm_level``):
-      0 — local state only (2K+1)
-      1 — append each graph neighbor's cache binary (padded to max degree × K)
-      2 — append each graph neighbor's full state (padded to max degree × (2K+1))
+      0 — local state only
+      1 — append each *same-cluster* peer's cache binary (padded to max cluster
+          degree × K). Inter-cluster bridge neighbors are excluded so the obs
+          matches ``forwarding_same_cluster_only``.
+      2 — same peer set as Level 1, with full neighbor state per peer
       3 — same layout as Level 1, but neighbor features are included only when the
           agent elects to communicate (Q-margin selective; see agents/multi_agent.py)
 
-    Overlap penalty (``overlap_penalty_weight``): applied once when a *cache*
-    action targets a container a neighbor already holds — a nudge, not a
-    per-timestep tax on the whole cache.
+    Overlap penalty (``overlap_penalty_weight``): applied once when a container
+    is *inserted* and a neighbor already holds it — a nudge, not a per-timestep
+    tax on the whole cache.
     """
 
     metadata = {"render_modes": ["human"]}
@@ -76,6 +101,7 @@ class MultiAgentCachingEnv(gym.Env):
         self.config = config
         self.num_nodes = int(config["num_nodes"])
         self.num_container_types = int(config["num_container_types"])
+        self.cache_capacity = int(config["cache_capacity"])
         self.observation_window = int(config["observation_window"])
         self.episode_length = int(config["episode_length"])
         self.enable_forwarding = bool(config.get("enable_forwarding", True))
@@ -88,6 +114,7 @@ class MultiAgentCachingEnv(gym.Env):
         self.selective_comm_threshold = float(
             config.get("selective_comm_threshold", 0.1)
         )
+        self.reject_action = self.cache_capacity
         self.timestep = 0
         self._seed = seed
         self._episode_overlap = 0
@@ -95,8 +122,8 @@ class MultiAgentCachingEnv(gym.Env):
         self._episode_task_reward = 0.0
         self._episode_comm_events = 0
         self._episode_comm_penalty = 0.0
-        # Level 3: which agents include neighbor features this step (set by agent loop).
         self._comm_active: dict[int, bool] = {}
+        self._pending_requests: dict[int, int | None] = {}
 
         self.catalog = create_catalog(self.num_container_types, seed=seed)
         self.network = EdgeNetwork(config)
@@ -107,14 +134,19 @@ class MultiAgentCachingEnv(gym.Env):
             cluster_for_node=self.network.cluster_for_node,
         )
 
-        # Fixed neighbor layout for shared-policy obs (pad shorter degree with zeros).
+        # Neighbor slots for obs / overlap: same-cluster peers only, matching
+        # ``forwarding_same_cluster_only``. Graph bridge edges stay in the
+        # adjacency for latency, but do not feed the caching policy.
         self.neighbor_lists = {
-            i: list(self.network.get_neighbors(i)) for i in range(self.num_nodes)
+            i: list(self.network.get_cluster_neighbors(i))
+            for i in range(self.num_nodes)
         }
         self.max_neighbors = max((len(v) for v in self.neighbor_lists.values()), default=0)
-        self.local_obs_dim = local_obs_size(self.num_container_types)
+        self.local_obs_dim = local_obs_size(
+            self.num_container_types, self.cache_capacity
+        )
         self.neighbor_feat_dim = neighbor_feature_size(
-            self.comm_level, self.num_container_types
+            self.comm_level, self.num_container_types, self.cache_capacity
         )
 
         self.possible_agents = [agent_id(i) for i in range(self.num_nodes)]
@@ -124,9 +156,10 @@ class MultiAgentCachingEnv(gym.Env):
             self.num_container_types,
             comm_level=self.comm_level,
             max_neighbors=self.max_neighbors,
+            cache_capacity=self.cache_capacity,
         )
         single_obs = spaces.Box(low=0.0, high=1.0, shape=(obs_size,), dtype=np.float32)
-        single_act = spaces.Discrete(2 * self.num_container_types + 1)
+        single_act = spaces.Discrete(self.cache_capacity + 1)
         self.observation_spaces = {aid: single_obs for aid in self.possible_agents}
         self.action_spaces = {aid: single_act for aid in self.possible_agents}
         self.observation_space = single_obs
@@ -143,17 +176,40 @@ class MultiAgentCachingEnv(gym.Env):
         """Return the action space for a specific agent."""
         return self.action_spaces[agent_id_]
 
+    def _needs_decision(self, node_id: int) -> bool:
+        requested = self._pending_requests.get(node_id)
+        if requested is None:
+            return False
+        node = self.network.nodes[node_id]
+        if node.is_cached(int(requested)):
+            return False
+        return len(node.cache) >= node.cache_capacity
+
     def _local_observation(self, node_id: int) -> np.ndarray:
-        return self.network.nodes[node_id].get_state(
-            self.num_container_types, self.observation_window
+        node = self.network.nodes[node_id]
+        k = self.num_container_types
+        c = self.cache_capacity
+        slots = node.get_cache_slots(c, k)
+        utilization = np.array(
+            [len(node.cache) / max(c, 1)], dtype=np.float32
         )
+        freq = node.get_request_freq(k, self.observation_window)
+        request = np.zeros(k, dtype=np.float32)
+        pending = self._pending_requests.get(node_id)
+        if pending is not None and 0 <= int(pending) < k:
+            request[int(pending)] = 1.0
+        need = np.array(
+            [1.0 if self._needs_decision(node_id) else 0.0], dtype=np.float32
+        )
+        return np.concatenate([slots, utilization, freq, request, need])
 
     def _neighbor_features(self, node_id: int) -> np.ndarray:
         if self.comm_level <= 0 or self.max_neighbors == 0:
             return np.zeros(0, dtype=np.float32)
-        # Levels 1 and 3 share cache-binary neighbor features; Level 2 is full state.
         feat_level = 1 if self.comm_level in (1, 3) else 2
-        feat_dim = neighbor_feature_size(feat_level, self.num_container_types)
+        feat_dim = neighbor_feature_size(
+            feat_level, self.num_container_types, self.cache_capacity
+        )
 
         parts: list[np.ndarray] = []
         neighbors = self.neighbor_lists[node_id]
@@ -164,11 +220,7 @@ class MultiAgentCachingEnv(gym.Env):
                 if feat_level == 1:
                     parts.append(node.get_cache_binary(self.num_container_types))
                 else:
-                    parts.append(
-                        node.get_state(
-                            self.num_container_types, self.observation_window
-                        )
-                    )
+                    parts.append(self._local_observation(nbr))
             else:
                 parts.append(np.zeros(feat_dim, dtype=np.float32))
         return np.concatenate(parts)
@@ -177,40 +229,48 @@ class MultiAgentCachingEnv(gym.Env):
         local = self._local_observation(node_id)
         if self.comm_level <= 0:
             return local
-        # Level 3 obs layout matches Level 1; selective *use* is agent-side (Q-margin).
         return np.concatenate([local, self._neighbor_features(node_id)])
 
     def _get_observations(self) -> dict[str, np.ndarray]:
         return {agent_id(i): self._get_observation(i) for i in range(self.num_nodes)}
 
-    def _score_cache_overlap(self, node_id: int, action: int) -> tuple[float, int]:
-        """Overlap penalty for newly caching a container neighbors already hold.
-
-        No penalty for no-op/evict, or for re-selecting a container already local
-        (avoids taxing settled policies that re-emit the same cache action).
-        """
-        action = int(action)
-        if action >= self.num_container_types:
-            return 0.0, 0
-        if self.network.nodes[node_id].is_cached(action):
+    def _overlap_for_insert(self, node_id: int, container_id: int) -> tuple[float, int]:
+        if self.network.nodes[node_id].is_cached(container_id):
             return 0.0, 0
         return cache_action_overlap_penalty(
             self.network,
             node_id,
-            action,
+            container_id,
             self.neighbor_lists[node_id],
             weight=self.overlap_penalty_weight,
         )
 
-    def _apply_action(self, node_id: int, action: int) -> None:
-        """Mutate cache for cache/evict/no-op; does not score overlap."""
+    def _admit(self, node_id: int, action: int) -> tuple[float, int]:
+        """Insert the pending miss according to eviction/reject; return overlap.
+
+        Call after scoring so the current request is never counted as a hit
+        from this admission. Hits and empty pending are no-ops.
+        """
+        requested = self._pending_requests.get(node_id)
         node = self.network.nodes[node_id]
-        k = self.num_container_types
+        if requested is None or node.is_cached(int(requested)):
+            return 0.0, 0
+        requested = int(requested)
+
+        if len(node.cache) < node.cache_capacity:
+            pen, overlap_n = self._overlap_for_insert(node_id, requested)
+            node.cache_container(requested)
+            return pen, overlap_n
+
         action = int(action)
-        if action < k:
-            node.cache_container(action)
-        elif action < 2 * k:
-            node.evict_container(action - k)
+        if action < 0 or action >= self.cache_capacity:
+            return 0.0, 0
+        if action >= len(node.cache):
+            return 0.0, 0
+        node.evict_slot(action)
+        pen, overlap_n = self._overlap_for_insert(node_id, requested)
+        node.cache_container(requested)
+        return pen, overlap_n
 
     def record_communication(self, node_id: int, communicated: bool) -> float:
         """Record a Level-3 communication event; return penalty (<= 0).
@@ -248,6 +308,10 @@ class MultiAgentCachingEnv(gym.Env):
             "cloud_rate": node.misses / total,
         }
 
+    def _draw_pending_requests(self) -> None:
+        generated = self.request_generator.generate()
+        self._pending_requests = {i: generated[i] for i in range(self.num_nodes)}
+
     def network_stats(self) -> dict[str, Any]:
         """Aggregate hit/forward/miss rates and cache diversity across all nodes."""
         hits = sum(n.hits for n in self.network.nodes)
@@ -268,6 +332,7 @@ class MultiAgentCachingEnv(gym.Env):
             "comm_level": self.comm_level,
             "max_neighbors": self.max_neighbors,
             "obs_dim": self._obs_size(),
+            "n_actions": int(self.action_space.n),
             "overlap_penalty_weight": self.overlap_penalty_weight,
             "overlap_count": self._episode_overlap,
             "overlap_penalty_total": self._episode_overlap_penalty,
@@ -300,14 +365,17 @@ class MultiAgentCachingEnv(gym.Env):
         self._episode_comm_events = 0
         self._episode_comm_penalty = 0.0
         self._comm_active = {}
+        self._draw_pending_requests()
 
         obs = self._get_observations()
         infos = {
             agent_id(i): {
                 "timestep": 0,
-                **self._node_rates(i),
+                "requested": self._pending_requests.get(i),
+                "needs_decision": self._needs_decision(i),
                 "overlap_penalty": 0.0,
                 "task_reward": 0.0,
+                **self._node_rates(i),
             }
             for i in range(self.num_nodes)
         }
@@ -322,38 +390,42 @@ class MultiAgentCachingEnv(gym.Env):
         dict[str, bool],
         dict[str, dict],
     ]:
-        """Apply all actions, generate requests, score rewards, and advance timestep."""
-        # Score overlap against pre-step caches (simultaneous decisions), then apply.
-        action_penalties: dict[str, tuple[float, int]] = {}
-        for aid, action in action_dict.items():
-            action_penalties[aid] = self._score_cache_overlap(int(aid), action)
+        """Score pending requests, admit misses, then draw the next requests."""
+        scored: dict[int, int | None] = dict(self._pending_requests)
+        needed = {i: self._needs_decision(i) for i in range(self.num_nodes)}
 
-        for aid, action in action_dict.items():
-            self._apply_action(int(aid), action)
+        task_rewards: dict[int, float] = {}
+        for node_id in range(self.num_nodes):
+            task_rewards[node_id] = self._process_request(
+                node_id, scored.get(node_id)
+            )
 
-        requests = self.request_generator.generate()
         rewards: dict[str, float] = {}
         infos: dict[str, dict] = {}
-
         for node_id in range(self.num_nodes):
-            requested = requests[node_id]
-            task_r = self._process_request(node_id, requested)
+            aid = agent_id(node_id)
+            action = int(action_dict.get(aid, self.reject_action))
+            if not needed[node_id]:
+                action = self.reject_action
+            pen, overlap_n = self._admit(node_id, action)
+            requested = scored.get(node_id)
             if requested is not None:
                 self.network.nodes[node_id].record_request(
-                    requested, self.observation_window
+                    int(requested), self.observation_window
                 )
 
-            aid = agent_id(node_id)
-            pen, overlap_n = action_penalties.get(aid, (0.0, 0))
             self._episode_overlap += overlap_n
             self._episode_overlap_penalty += pen
+            task_r = task_rewards[node_id]
             self._episode_task_reward += task_r
-
             total_r = task_r + pen
             rewards[aid] = total_r
             infos[aid] = {
                 "timestep": self.timestep + 1,
                 "requested": requested,
+                "needs_decision": needed[node_id],
+                "acted": needed[node_id],
+                "action": action,
                 "task_reward": task_r,
                 "overlap_penalty": pen,
                 "overlap_count": overlap_n,
@@ -369,9 +441,10 @@ class MultiAgentCachingEnv(gym.Env):
 
         if truncated:
             self.agents = []
+            self._pending_requests = {i: None for i in range(self.num_nodes)}
+        else:
+            self._draw_pending_requests()
 
-        # Clear per-step Level-3 flags after consuming them for the next obs build
-        # happens after agent sets communication for the following decision.
         return self._get_observations(), rewards, terminateds, truncateds, infos
 
     def render(self) -> None:
@@ -380,7 +453,8 @@ class MultiAgentCachingEnv(gym.Env):
         print(
             f"t={self.timestep} level={self.comm_level} hit={stats['hit_rate']:.2f} "
             f"fwd={stats['forward_rate']:.2f} cloud={stats['cloud_rate']:.2f} "
-            f"diversity={stats['cache_diversity']}/{self.num_nodes}"
+            f"diversity={stats['cache_diversity']}/{self.num_nodes} "
+            f"n_actions={stats['n_actions']}"
         )
         for node_id, cache in stats["caches"].items():
             node = self.network.nodes[node_id]

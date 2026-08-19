@@ -7,7 +7,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 RESULTS_ROOT = ROOT / "results"
 RUNS_DIR = RESULTS_ROOT / "runs"
+PRETRAINED_DIR = ROOT / "pretrained_models"
 FIGURES_DIR = RESULTS_ROOT / "figures"
+
+# Canonical Exp1 checkpoints (10 nodes, shifting, locality=0.3).
+CANONICAL_PRETRAINED_RUNS: tuple[str, ...] = (
+    "dqn_evict_level0_scratch_loc0.3",
+    "dqn_evict_level1_scratch_loc0.3",
+    "dqn_evict_level2_scratch_loc0.3",
+    "dqn_evict_level3_scratch_loc0.3",
+)
 
 
 @dataclass(frozen=True)
@@ -63,12 +72,13 @@ def figure_path(name: str) -> Path:
 
 
 def resolve_run_name(path_arg: str) -> str:
-    """Normalize CLI paths like results/runs/foo or results/foo into a run name."""
+    """Normalize CLI paths like results/runs/foo into a run name."""
     path = Path(path_arg)
     parts = path.parts
-    if "runs" in parts:
-        idx = parts.index("runs")
-        return "/".join(parts[idx + 1 :]) or path.name
+    for anchor in ("runs", "pretrained_models"):
+        if anchor in parts:
+            idx = parts.index(anchor)
+            return "/".join(parts[idx + 1 :]) or path.name
     name = path.name
     if name.endswith("_best"):
         name = name[: -len("_best")]
@@ -87,6 +97,7 @@ def resolve_model_path(
 
     run_name = resolve_run_name(str(path_arg))
     run_root = RUNS_DIR / run_name
+    pretrained_root = PRETRAINED_DIR / run_name
     candidates: list[Path] = []
 
     if path.suffix == ".zip":
@@ -100,7 +111,9 @@ def resolve_model_path(
 
     if prefer_best:
         candidates.append(run_root / "best_model.zip")
+        candidates.append(pretrained_root / "best_model.zip")
     candidates.append(run_root / "model.zip")
+    candidates.append(pretrained_root / "model.zip")
     candidates.append(RESULTS_ROOT / f"{run_name}_best" / "best_model.zip")
     candidates.append(RESULTS_ROOT / f"{run_name}.zip")
 

@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from agents.baselines import LFUPolicy, LRUPolicy
 from agents.multi_agent import (
+    blind_multi_baseline_step,
     evaluate_sb3_dqn,
     reactive_multi_baseline_step,
     resolve_multi_model_path,
@@ -27,17 +28,26 @@ def evaluate_baselines(
     *,
     num_episodes: int,
     seed: int,
+    oracle: bool = False,
 ) -> dict:
     env = MultiAgentCachingEnv(config, seed=seed)
     obs, _ = env.reset(seed=seed)
     policies = {i: policy_factory() for i in range(env.num_nodes)}
+    last_requests: dict[int, int | None] = {i: None for i in range(env.num_nodes)}
 
     episode_returns: list[float] = []
     episode_return = 0.0
     episodes_done = 0
 
     while episodes_done < num_episodes:
-        obs, rewards, truncated = reactive_multi_baseline_step(env, policies, obs)
+        if oracle:
+            obs, rewards, truncated = reactive_multi_baseline_step(
+                env, policies, obs
+            )
+        else:
+            obs, rewards, truncated, last_requests = blind_multi_baseline_step(
+                env, policies, obs, last_requests
+            )
         episode_return += float(sum(rewards.values()))
         if truncated:
             episode_returns.append(episode_return)
@@ -46,6 +56,7 @@ def evaluate_baselines(
             if episodes_done < num_episodes:
                 obs, _ = env.reset()
                 policies = {i: policy_factory() for i in range(env.num_nodes)}
+                last_requests = {i: None for i in range(env.num_nodes)}
 
     stats = env.network_stats()
     return {
@@ -99,6 +110,11 @@ def main() -> None:
     )
     parser.add_argument("--no-dqn", action="store_true")
     parser.add_argument(
+        "--oracle-baselines",
+        action="store_true",
+        help="Use reactive oracle heuristics (see current request). Default: blind, matching DQN.",
+    )
+    parser.add_argument(
         "--no-forwarding",
         action="store_true",
         help="Disable neighbor forwarding (misses go to cloud)",
@@ -134,6 +150,11 @@ def main() -> None:
     )
 
     fwd_label = "ON" if config["enable_forwarding"] else "OFF"
+    baseline_mode = (
+        "oracle (see request)"
+        if args.oracle_baselines
+        else "blind (act-then-request, same as DQN)"
+    )
     print("Multi-node policy comparison")
     print(
         f"  nodes={config['num_nodes']} clusters={config['num_clusters']} "
@@ -142,7 +163,7 @@ def main() -> None:
         f"comm_level={config['comm_level']} "
         f"episodes={args.episodes} seeds={seeds}"
     )
-    print("  LRU/LFU: reactive oracle per node; same-cluster forwarding when ON")
+    print(f"  LRU/LFU: {baseline_mode}")
     print("  DQN:     act-then-request shared SB3 policy")
     print()
 
@@ -159,10 +180,20 @@ def main() -> None:
         print(f"--- seed={eval_seed} ---")
         results = [
             evaluate_baselines(
-                LRUPolicy, "LRU", config, num_episodes=args.episodes, seed=eval_seed
+                LRUPolicy,
+                "LRU",
+                config,
+                num_episodes=args.episodes,
+                seed=eval_seed,
+                oracle=args.oracle_baselines,
             ),
             evaluate_baselines(
-                LFUPolicy, "LFU", config, num_episodes=args.episodes, seed=eval_seed
+                LFUPolicy,
+                "LFU",
+                config,
+                num_episodes=args.episodes,
+                seed=eval_seed,
+                oracle=args.oracle_baselines,
             ),
         ]
         if model_path is not None:

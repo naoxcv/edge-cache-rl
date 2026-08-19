@@ -50,6 +50,34 @@ class EdgeNode:
             return True
         return False
 
+    def evict_slot(self, slot: int) -> int | None:
+        """Evict the container in LRU-ordered slot ``slot``. Return its ID, or None."""
+        if slot < 0 or slot >= len(self.cache):
+            return None
+        container_id = self.cache.pop(slot)
+        self.cache_set.remove(container_id)
+        return container_id
+
+    def get_cache_slots(self, cache_capacity: int, num_container_types: int) -> np.ndarray:
+        """Length-C×K one-hot of LRU-ordered cache slots (empty slots are zeros)."""
+        slots = np.zeros(cache_capacity * num_container_types, dtype=np.float32)
+        for i, container_id in enumerate(self.cache):
+            if i >= cache_capacity or container_id < 0 or container_id >= num_container_types:
+                continue
+            slots[i * num_container_types + container_id] = 1.0
+        return slots
+
+    def get_request_freq(self, num_container_types: int, observation_window: int) -> np.ndarray:
+        """Normalized request frequencies over the observation window."""
+        request_freq = np.zeros(num_container_types, dtype=np.float32)
+        for container_id in self.request_history[-observation_window:]:
+            if 0 <= container_id < num_container_types:
+                request_freq[container_id] += 1.0
+        max_freq = request_freq.max()
+        if max_freq > 0:
+            request_freq /= max_freq
+        return request_freq
+
     def record_request(self, container_id: int, observation_window: int) -> None:
         """Append to request history, maintain sliding window."""
         self.request_history.append(container_id)
@@ -68,14 +96,7 @@ class EdgeNode:
         cache_binary = self.get_cache_binary(num_container_types)
 
         utilization = np.array([len(self.cache) / self.cache_capacity], dtype=np.float32)
-
-        request_freq = np.zeros(num_container_types, dtype=np.float32)
-        for container_id in self.request_history[-observation_window:]:
-            request_freq[container_id] += 1.0
-        max_freq = request_freq.max()
-        if max_freq > 0:
-            request_freq /= max_freq
-
+        request_freq = self.get_request_freq(num_container_types, observation_window)
         return np.concatenate([cache_binary, utilization, request_freq])
 
     def reset(self) -> None:

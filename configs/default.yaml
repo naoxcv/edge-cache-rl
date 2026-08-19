@@ -28,11 +28,13 @@ overlap_penalty_weight: 0.0
 
 # Communication
 comm_level: 0               # 0=none, 1=neighbor_summary, 2=full_neighbor, 3=selective
-selective_comm_threshold: 0.01 # Q-value margin threshold for Level 3 (absolute)
+selective_comm_threshold: 0.1  # Q-margin; 0.01 was tuned for 41-way Q (fires ~3% of 6-action eviction decisions)
 enable_forwarding: true         # if false, misses go straight to cloud
-forwarding_same_cluster_only: true  # forward only within cluster when enabled
+forwarding_same_cluster_only: true  # forward + L1–L3 obs peers within cluster only
 
 # Environment
+# Action space is Discrete(cache_capacity + 1): evict slot 0..C-1 or reject.
+# Observation (local): C×K slot one-hots + util + freq(K) + pending request(K) + needs_decision.
 episode_length: 1000
 observation_window: 50       # timesteps of request history in state vector
 

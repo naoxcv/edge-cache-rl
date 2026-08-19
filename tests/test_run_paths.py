@@ -39,5 +39,20 @@ def test_resolve_model_path_legacy_flat_zip(tmp_path, monkeypatch):
     monkeypatch.setattr("run_paths.ROOT", tmp_path)
     monkeypatch.setattr("run_paths.RUNS_DIR", tmp_path / "results" / "runs")
     monkeypatch.setattr("run_paths.RESULTS_ROOT", tmp_path / "results")
+    monkeypatch.setattr("run_paths.PRETRAINED_DIR", tmp_path / "pretrained_models")
 
     assert resolve_model_path("old_model") == legacy
+
+
+def test_resolve_model_path_pretrained_fallback(tmp_path, monkeypatch):
+    pretrained = tmp_path / "pretrained_models" / "demo" / "best_model.zip"
+    pretrained.parent.mkdir(parents=True)
+    pretrained.write_text("pretrained")
+
+    monkeypatch.setattr("run_paths.ROOT", tmp_path)
+    monkeypatch.setattr("run_paths.RUNS_DIR", tmp_path / "results" / "runs")
+    monkeypatch.setattr("run_paths.RESULTS_ROOT", tmp_path / "results")
+    monkeypatch.setattr("run_paths.PRETRAINED_DIR", tmp_path / "pretrained_models")
+
+    assert resolve_model_path("demo") == pretrained
+    assert resolve_run_name("pretrained_models/demo") == "demo"

@@ -22,23 +22,17 @@ HIT_RATE_BOUNDS = (0.15, 0.50)
 
 
 def baseline_step(env: CachingEnv, policy, obs: np.ndarray) -> tuple[np.ndarray, float, bool]:
-    """Reactive baseline step: score request first, then update cache."""
-    requests = env.request_generator.generate()
-    requested = requests[env.active_node]
-
-    reward = env._process_request(requested)
-
-    if requested is not None:
-        env._active_node().record_request(requested, env.observation_window)
-
+    """Request-first eviction step matching CachingEnv.step."""
     node = env.network.nodes[env.active_node]
-    action = policy.act(obs, requested, cache=node.cache)
-    env._apply_action(action)
-
-    env.timestep += 1
-    truncated = env.timestep >= env.episode_length
-    observation = env._get_observation()
-    return observation, reward, truncated
+    action = policy.act(
+        obs,
+        env._pending,
+        cache=node.cache,
+        cache_capacity=env.cache_capacity,
+        num_container_types=env.num_container_types,
+    )
+    obs, reward, _terminated, truncated, _info = env.step(action)
+    return obs, reward, truncated
 
 
 def run_policy(policy_name: str, policy, config: dict, seed: int = 42) -> dict:

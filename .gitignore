@@ -15,3 +15,4 @@ results/**/tensorboard/
 results/**/*.zip
 results/*.zip
 results/*_best/
+pretrained_models/**/*.zip

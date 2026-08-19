@@ -30,9 +30,12 @@ body {
 }
 
 .app {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 1.25rem 1.5rem 2rem;
+  padding: 1rem 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 header {
@@ -41,7 +44,8 @@ header {
   gap: 1rem;
   align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.85rem;
+  flex-shrink: 0;
 }
 
 header h1 {
@@ -88,16 +92,34 @@ header p {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.stat-reward .value {
+  color: var(--comm);
+}
+
+.stat .sub {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.level-btn.heuristic.active {
+  border-color: var(--hit);
+  background: #102818;
+  color: var(--hit);
 }
 
 .stat {
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: 8px;
-  padding: 0.75rem 0.9rem;
+  padding: 0.6rem 0.85rem;
 }
 
 .stat .label {
@@ -108,23 +130,27 @@ header p {
 }
 
 .stat .value {
-  font-size: 1.35rem;
-  margin-top: 0.2rem;
+  font-size: 1.25rem;
+  margin-top: 0.15rem;
   font-variant-numeric: tabular-nums;
 }
 
 .stage {
   position: relative;
-  background: #121820;
+  background:
+    radial-gradient(900px 420px at 50% 0%, #182233 0%, #121820 55%);
   border: 1px solid var(--edge);
-  border-radius: 12px;
-  height: 560px;
+  border-radius: 14px;
+  flex: 1 1 auto;
+  min-height: 520px;
+  height: clamp(520px, 62vh, 780px);
   overflow: hidden;
 }
 
 svg.network {
   width: 100%;
   height: 100%;
+  display: block;
 }
 
 .node-card {
@@ -132,17 +158,19 @@ svg.network {
 }
 
 .cache-slot {
-  font-size: 10px;
-  fill: var(--text);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  margin-top: 0.9rem;
+  margin-top: 0.7rem;
   color: var(--muted);
   font-size: 0.85rem;
+  flex-shrink: 0;
 }
 
 .swatch {
@@ -155,28 +183,30 @@ svg.network {
 }
 
 .event-log {
-  margin-top: 1rem;
+  margin-top: 0.7rem;
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: 8px;
-  padding: 0.75rem 1rem;
-  max-height: 140px;
+  padding: 0.65rem 0.9rem;
+  max-height: 110px;
   overflow: auto;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.8rem;
   color: var(--muted);
+  flex-shrink: 0;
 }
 
 .event-log .hit { color: var(--hit); }
 .event-log .forward { color: var(--fwd); }
 .event-log .cloud { color: var(--cloud); }
 .event-log .comm { color: var(--comm); }
+.event-log .reward { color: var(--comm); }
 
 @media (max-width: 720px) {
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .stage {
-    height: 480px;
+    height: min(560px, 62vh);
   }
 }

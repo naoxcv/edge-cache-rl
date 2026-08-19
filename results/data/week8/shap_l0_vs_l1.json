@@ -3,142 +3,146 @@
   "seed": 42,
   "l0": {
     "group_share": {
-      "local_cache": 0.6036948161548735,
-      "local_util": 0.023062727208884564,
-      "local_req_freq": 0.37324245663624184
+      "local_cache": 0.5342652122844405,
+      "local_util": 0.006699661741335707,
+      "local_req_freq": 0.2221591755271775,
+      "pending_request": 0.2241262526743945,
+      "needs_decision": 0.012749697772651876
     },
-    "n_evictions": 256,
+    "n_evictions": 200,
     "top_features": [
       {
-        "name": "local_cache[1]",
-        "mean_abs_shap": 0.922437026546136
-      },
-      {
-        "name": "local_cache[18]",
-        "mean_abs_shap": 0.6100220023156393
-      },
-      {
-        "name": "local_cache[11]",
-        "mean_abs_shap": 0.508124350916441
-      },
-      {
         "name": "local_req_freq[18]",
-        "mean_abs_shap": 0.484642314874254
+        "mean_abs_shap": 1.818027548376695
       },
       {
-        "name": "local_cache[17]",
-        "mean_abs_shap": 0.46870126935993695
+        "name": "pending_req[18]",
+        "mean_abs_shap": 1.131026747727394
       },
       {
-        "name": "local_req_freq[4]",
-        "mean_abs_shap": 0.39970758426996456
+        "name": "local_req_freq[11]",
+        "mean_abs_shap": 1.0122779666816673
       },
       {
-        "name": "local_cache[0]",
-        "mean_abs_shap": 0.3802721353863613
+        "name": "local_req_freq[5]",
+        "mean_abs_shap": 0.8957285477779047
       },
       {
-        "name": "local_cache[14]",
-        "mean_abs_shap": 0.36386216037807845
+        "name": "pending_req[14]",
+        "mean_abs_shap": 0.560299737387896
       },
       {
-        "name": "local_cache[15]",
-        "mean_abs_shap": 0.31133088250301033
+        "name": "pending_req[4]",
+        "mean_abs_shap": 0.5597967869400979
       },
       {
-        "name": "local_cache[6]",
-        "mean_abs_shap": 0.27508771880484323
+        "name": "slot[1]_c[12]",
+        "mean_abs_shap": 0.5220119962051512
       },
       {
-        "name": "local_req_freq[1]",
-        "mean_abs_shap": 0.27394261659643926
+        "name": "pending_req[5]",
+        "mean_abs_shap": 0.49458914133906345
       },
       {
-        "name": "local_cache[4]",
-        "mean_abs_shap": 0.2523766760280818
+        "name": "pending_req[19]",
+        "mean_abs_shap": 0.48697885581254957
       },
       {
-        "name": "local_req_freq[14]",
-        "mean_abs_shap": 0.23597563873287475
+        "name": "pending_req[11]",
+        "mean_abs_shap": 0.4797592706322672
       },
       {
-        "name": "local_cache[7]",
-        "mean_abs_shap": 0.21430323253440667
+        "name": "slot[2]_c[18]",
+        "mean_abs_shap": 0.47553862980604167
+      },
+      {
+        "name": "slot[0]_c[5]",
+        "mean_abs_shap": 0.47439677304625477
       },
       {
         "name": "local_req_freq[12]",
-        "mean_abs_shap": 0.20394019637871336
+        "mean_abs_shap": 0.4692283614706939
+      },
+      {
+        "name": "pending_req[3]",
+        "mean_abs_shap": 0.45729007828235624
+      },
+      {
+        "name": "slot[0]_c[18]",
+        "mean_abs_shap": 0.4443961416035894
       }
     ]
   },
   "l1": {
     "group_share": {
-      "local_cache": 0.2559351278210622,
-      "local_util": 0.0004212143479014351,
-      "local_req_freq": 0.2284381752820478,
-      "neighbor_cache": 0.5152054825489885
+      "local_cache": 0.2532070718987581,
+      "local_util": 0.0014897790084197932,
+      "local_req_freq": 0.04651765859353617,
+      "pending_request": 0.17615223956187617,
+      "needs_decision": 0.015059546995599924,
+      "neighbor_cache": 0.5075737039418099
     },
-    "n_evictions": 256,
+    "n_evictions": 200,
     "top_features": [
       {
-        "name": "local_req_freq[18]",
-        "mean_abs_shap": 0.5909468482371913
+        "name": "pending_req[18]",
+        "mean_abs_shap": 1.0505779646426445
       },
       {
-        "name": "local_cache[4]",
-        "mean_abs_shap": 0.333597776446035
+        "name": "nbr[9]_cache[18]",
+        "mean_abs_shap": 0.6660782468222084
       },
       {
-        "name": "nbr[3]_cache[12]",
-        "mean_abs_shap": 0.3079088195895361
+        "name": "nbr[9]_cache[5]",
+        "mean_abs_shap": 0.6492886512607339
       },
       {
-        "name": "nbr[3]_cache[8]",
-        "mean_abs_shap": 0.3058493194345624
+        "name": "nbr[9]_cache[7]",
+        "mean_abs_shap": 0.5215057919897137
       },
       {
-        "name": "local_req_freq[4]",
-        "mean_abs_shap": 0.3047617218300438
+        "name": "needs_decision",
+        "mean_abs_shap": 0.48679019374135635
       },
       {
-        "name": "local_cache[8]",
-        "mean_abs_shap": 0.30361376668156653
+        "name": "pending_req[12]",
+        "mean_abs_shap": 0.4657099113938402
       },
       {
-        "name": "nbr[6]_cache[8]",
-        "mean_abs_shap": 0.29525289399995824
+        "name": "nbr[9]_cache[3]",
+        "mean_abs_shap": 0.4631111401192842
       },
       {
-        "name": "nbr[3]_cache[13]",
-        "mean_abs_shap": 0.27301488589713235
+        "name": "pending_req[5]",
+        "mean_abs_shap": 0.4469913103253901
       },
       {
-        "name": "nbr[6]_cache[2]",
-        "mean_abs_shap": 0.2696735524304561
+        "name": "nbr[3]_cache[5]",
+        "mean_abs_shap": 0.42842486130672014
       },
       {
-        "name": "local_cache[14]",
-        "mean_abs_shap": 0.2687366851702289
+        "name": "pending_req[3]",
+        "mean_abs_shap": 0.4245336452062066
       },
       {
-        "name": "local_cache[13]",
-        "mean_abs_shap": 0.24091932384111636
+        "name": "nbr[3]_cache[14]",
+        "mean_abs_shap": 0.4206469085058544
       },
       {
-        "name": "local_cache[18]",
-        "mean_abs_shap": 0.2140033790522243
+        "name": "slot[0]_c[5]",
+        "mean_abs_shap": 0.41728571798950426
       },
       {
-        "name": "local_req_freq[19]",
-        "mean_abs_shap": 0.20665794611993427
+        "name": "nbr[9]_cache[11]",
+        "mean_abs_shap": 0.41181274240911014
       },
       {
-        "name": "local_req_freq[11]",
-        "mean_abs_shap": 0.20614948786153475
+        "name": "nbr[9]_cache[15]",
+        "mean_abs_shap": 0.40497751976102614
       },
       {
-        "name": "local_req_freq[0]",
-        "mean_abs_shap": 0.20586804434622255
+        "name": "nbr[9]_cache[10]",
+        "mean_abs_shap": 0.3949367017775773
       }
     ]
   }

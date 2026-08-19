@@ -44,11 +44,11 @@ class Condition:
             and self.traffic == "shifting"
             and abs(self.locality - 0.3) < 1e-9
         ):
-            return f"dqn_multi_level{self.level}_scratch_loc0.3"
+            return f"dqn_evict_level{self.level}_scratch_loc0.3"
         # Keep one decimal so 0.0 stays "0.0" (":g" would emit "0").
         loc = f"{self.locality:.1f}"
         return (
-            f"dqn_multi_level{self.level}_scratch_"
+            f"dqn_evict_level{self.level}_scratch_"
             f"n{self.nodes}_c{self.clusters}_{self.traffic}_loc{loc}"
         )
 
@@ -143,7 +143,6 @@ def ensure_trained(cond: Condition, *, force: bool = False, config_path: str = "
         total_timesteps=steps,
         config=cfg,
         run_name=cond.run_name,
-        pretrained_path=None,
         early_stopping=True,
         eval_freq=eval_freq_for(cond.nodes),
         verbose=1,

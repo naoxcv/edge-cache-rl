@@ -146,6 +146,25 @@ def test_get_state_shape_and_range(config):
     assert state[k + 1 + 2] == 1.0  # container 2 most frequent
 
 
+def test_evict_slot(small_node):
+    for cid in [0, 1, 2]:
+        small_node.cache_container(cid)
+    assert small_node.evict_slot(1) == 1
+    assert small_node.cache == [0, 2]
+    assert small_node.cache_set == {0, 2}
+    assert small_node.evict_slot(9) is None
+
+
+def test_get_cache_slots_onehot(small_node):
+    small_node.cache_container(1)
+    small_node.cache_container(2)
+    slots = small_node.get_cache_slots(cache_capacity=3, num_container_types=4)
+    assert slots.shape == (12,)
+    assert slots[1] == 1.0  # slot 0, container 1
+    assert slots[4 + 2] == 1.0  # slot 1, container 2
+    assert slots[8:].sum() == 0.0
+
+
 def test_reset_clears_everything(small_node, config):
     window = config["observation_window"]
     small_node.cache_container(0)

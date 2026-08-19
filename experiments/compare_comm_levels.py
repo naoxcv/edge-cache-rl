@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from agents.baselines import LFUPolicy, LRUPolicy
 from agents.multi_agent import (
+    blind_multi_baseline_step,
     evaluate_sb3_dqn,
     reactive_multi_baseline_step,
     resolve_multi_model_path,
@@ -27,17 +28,26 @@ def evaluate_baselines(
     *,
     num_episodes: int,
     seed: int,
+    oracle: bool = False,
 ) -> dict:
     env = MultiAgentCachingEnv(config, seed=seed)
     obs, _ = env.reset(seed=seed)
     policies = {i: policy_factory() for i in range(env.num_nodes)}
+    last_requests: dict[int, int | None] = {i: None for i in range(env.num_nodes)}
 
     episode_returns: list[float] = []
     episode_return = 0.0
     episodes_done = 0
 
     while episodes_done < num_episodes:
-        obs, rewards, truncated = reactive_multi_baseline_step(env, policies, obs)
+        if oracle:
+            obs, rewards, truncated = reactive_multi_baseline_step(
+                env, policies, obs
+            )
+        else:
+            obs, rewards, truncated, last_requests = blind_multi_baseline_step(
+                env, policies, obs, last_requests
+            )
         episode_return += float(sum(rewards.values()))
         if truncated:
             episode_returns.append(episode_return)
@@ -46,6 +56,7 @@ def evaluate_baselines(
             if episodes_done < num_episodes:
                 obs, _ = env.reset()
                 policies = {i: policy_factory() for i in range(env.num_nodes)}
+                last_requests = {i: None for i in range(env.num_nodes)}
 
     stats = env.network_stats()
     return {
@@ -81,7 +92,7 @@ def main() -> None:
     )
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--seeds", type=str, default=None)
+    parser.add_argument("--seeds", type=str, default="42,0,7")
     parser.add_argument("--nodes", type=int, default=10)
     parser.add_argument("--clusters", type=int, default=3)
     parser.add_argument("--traffic", type=str, default="shifting")
@@ -89,17 +100,27 @@ def main() -> None:
     parser.add_argument(
         "--levels",
         type=str,
-        default="0,1,2",
-        help="Comma-separated comm levels to evaluate, e.g. 0,1,2",
+        default="0,1,2,3",
+        help="Comma-separated comm levels to evaluate, e.g. 0,1,2,3",
     )
     parser.add_argument(
         "--dqn-paths",
         type=str,
-        default="dqn_multi_level0,dqn_multi_level1,dqn_multi_level2",
+        default=(
+            "dqn_evict_level0_scratch_loc0.3,"
+            "dqn_evict_level1_scratch_loc0.3,"
+            "dqn_evict_level2_scratch_loc0.3,"
+            "dqn_evict_level3_scratch_loc0.3"
+        ),
         help="Comma-separated run names/paths aligned with --levels",
     )
     parser.add_argument("--no-dqn", action="store_true")
     parser.add_argument("--no-baselines", action="store_true")
+    parser.add_argument(
+        "--oracle-baselines",
+        action="store_true",
+        help="Use reactive oracle heuristics (see current request). Default: blind, matching DQN.",
+    )
     parser.add_argument("--no-forwarding", action="store_true")
     parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
     parser.add_argument("--output-dir", type=str, default="results", help="Base output directory")
@@ -124,6 +145,7 @@ def main() -> None:
     base["forwarding_same_cluster_only"] = True
     base["enable_forwarding"] = not args.no_forwarding
 
+    baseline_mode = "request-first eviction (same MDP as DQN)"
     print("Communication-level comparison")
     print(
         f"  nodes={args.nodes} clusters={args.clusters} traffic={args.traffic} "
@@ -131,6 +153,7 @@ def main() -> None:
         f"forwarding={'ON' if base['enable_forwarding'] else 'OFF'} "
         f"episodes={args.episodes} seeds={seeds} levels={levels}"
     )
+    print(f"  LRU/LFU: {baseline_mode}")
     print()
 
     resolved: dict[int, Path | None] = {}
@@ -151,7 +174,12 @@ def main() -> None:
         if not args.no_baselines:
             for factory, name in ((LRUPolicy, "LRU"), (LFUPolicy, "LFU")):
                 result = evaluate_baselines(
-                    factory, name, config0, num_episodes=args.episodes, seed=eval_seed
+                    factory,
+                    name,
+                    config0,
+                    num_episodes=args.episodes,
+                    seed=eval_seed,
+                    oracle=args.oracle_baselines,
                 )
                 print_result(result, config0)
                 agg.setdefault(name, []).append(result)

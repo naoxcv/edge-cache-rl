@@ -32,28 +32,41 @@ WEEK8 = ROOT / "results" / "data" / "week8"
 def feature_names(env: MultiAgentCachingEnv, node_id: int = 0) -> list[str]:
     """Human-readable labels for one node's observation vector."""
     k = env.num_container_types
-    names = [f"local_cache[{i}]" for i in range(k)]
+    c = env.cache_capacity
+    names = [f"slot[{s}]_c[{i}]" for s in range(c) for i in range(k)]
     names.append("local_util")
     names.extend(f"local_req_freq[{i}]" for i in range(k))
+    names.extend(f"pending_req[{i}]" for i in range(k))
+    names.append("needs_decision")
     if env.comm_level <= 0:
         return names
     neighbors = env.neighbor_lists[node_id]
+    feat_k = k if env.comm_level in (1, 3) else env.local_obs_dim
     for slot in range(env.max_neighbors):
         if slot < len(neighbors):
             nid = neighbors[slot]
-            prefix = f"nbr[{nid}]_cache"
+            prefix = f"nbr[{nid}]"
         else:
-            prefix = f"nbr_pad[{slot}]_cache"
-        names.extend(f"{prefix}[{i}]" for i in range(k))
+            prefix = f"nbr_pad[{slot}]"
+        if env.comm_level == 2:
+            names.extend(f"{prefix}_local[{i}]" for i in range(feat_k))
+        else:
+            names.extend(f"{prefix}_cache[{i}]" for i in range(k))
     return names
 
 
-def feature_groups(k: int, obs_dim: int) -> dict[str, slice]:
-    local = local_obs_size(k)
+def feature_groups(k: int, obs_dim: int, cache_capacity: int) -> dict[str, slice]:
+    local = local_obs_size(k, cache_capacity)
+    slot_end = cache_capacity * k
+    util_end = slot_end + 1
+    freq_end = util_end + k
+    req_end = freq_end + k
     groups = {
-        "local_cache": slice(0, k),
-        "local_util": slice(k, k + 1),
-        "local_req_freq": slice(k + 1, local),
+        "local_cache": slice(0, slot_end),
+        "local_util": slice(slot_end, util_end),
+        "local_req_freq": slice(util_end, freq_end),
+        "pending_request": slice(freq_end, req_end),
+        "needs_decision": slice(req_end, local),
     }
     if obs_dim > local:
         groups["neighbor_cache"] = slice(local, obs_dim)
@@ -89,7 +102,7 @@ def collect_eviction_obs(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Roll out greedily; return (background_obs, eviction_obs, eviction_actions)."""
     env = MultiAgentCachingEnv(config, seed=seed)
-    k = env.num_container_types
+    c = env.cache_capacity
     obs, _ = env.reset(seed=seed)
 
     all_obs: list[np.ndarray] = []
@@ -105,7 +118,7 @@ def collect_eviction_obs(
             )
             actions[aid] = action
             all_obs.append(np.asarray(agent_obs, dtype=np.float32))
-            if k <= action < 2 * k:
+            if 0 <= action < c:
                 evict_obs.append(np.asarray(agent_obs, dtype=np.float32))
                 evict_actions.append(action)
         obs, _, _, truncateds, _ = env.step(actions)
@@ -268,7 +281,11 @@ def run_level(
     )
 
     mean_abs = explain_evictions(model, background, evict_obs, evict_actions)
-    groups = feature_groups(config["num_container_types"], mean_abs.shape[0])
+    groups = feature_groups(
+        int(config["num_container_types"]),
+        mean_abs.shape[0],
+        int(config["cache_capacity"]),
+    )
     group_share = group_importance(mean_abs, groups)
 
     env = MultiAgentCachingEnv(config, seed=seed)
@@ -313,11 +330,11 @@ def main() -> None:
     parser.add_argument("--background", type=int, default=64)
     parser.add_argument(
         "--l0-run",
-        default="dqn_multi_level0_scratch_loc0.3",
+        default="dqn_evict_level0_scratch_loc0.3",
     )
     parser.add_argument(
         "--l1-run",
-        default="dqn_multi_level1_scratch_loc0.3",
+        default="dqn_evict_level1_scratch_loc0.3",
     )
     parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config")
     parser.add_argument("--output-dir", type=str, default=None, help="Base results directory (overrides default results/)")

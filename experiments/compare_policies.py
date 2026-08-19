@@ -19,23 +19,17 @@ from run_paths import resolve_model_path
 def reactive_baseline_step(
     env: CachingEnv, policy, obs: np.ndarray
 ) -> tuple[np.ndarray, float, bool]:
-    """Score request first, then update cache (reactive oracle baseline)."""
-    requests = env.request_generator.generate()
-    requested = requests[env.active_node]
-
-    reward = env._process_request(requested)
-
-    if requested is not None:
-        env._active_node().record_request(requested, env.observation_window)
-
+    """Score pending request, then admit via eviction-only action."""
     node = env.network.nodes[env.active_node]
-    action = policy.act(obs, requested, cache=node.cache)
-    env._apply_action(action)
-
-    env.timestep += 1
-    truncated = env.timestep >= env.episode_length
-    observation = env._get_observation()
-    return observation, reward, truncated
+    action = policy.act(
+        obs,
+        env._pending,
+        cache=node.cache,
+        cache_capacity=env.cache_capacity,
+        num_container_types=env.num_container_types,
+    )
+    obs, reward, _terminated, truncated, _info = env.step(action)
+    return obs, reward, truncated
 
 
 def evaluate_baseline(
