@@ -1,6 +1,10 @@
 # Communication-Aware Multi-Agent RL for Edge Container Caching
 
-Edge nodes learn cooperative container caching under four communication levels (L0–L3), using a shared-policy DQN with request-first eviction actions (`Discrete(C+1)`). **Research question:** how does inter-agent communication affect caching performance, and can selective communication recover full-coordination benefits at lower bandwidth? **Headline result:** on the canonical 10-node shifting workload (locality=0.3), **L1 (always-on neighbor cache summaries) beats the LFU heuristic by 4.4%** episode return (4240 vs 4060) while cutting cloud pulls to 19.8%. **SHAP analysis on eviction decisions confirms L1 agents rely on neighbor cache state** (~51% of feature importance vs 0% at L0), shifting weight away from purely local signals.
+Edge nodes learn cooperative container caching under four communication levels (L0–L3), using a shared-policy DQN with request-first eviction actions (`Discrete(C+1)`).
+
+**Research question:** How does inter-agent communication affect caching performance, and can selective communication recover full-coordination benefits at lower bandwidth?
+
+**Headline result:** On the canonical 10-node shifting workload (locality=0.3), L1 (always-on neighbor cache summaries) beats the LFU heuristic by 4.4% in episode return (4240 vs 4060) while cutting cloud pulls to 19.8%. SHAP analysis confirms L1 agents derive 50.8% of eviction feature importance from neighbor cache state.
 
 ## Setup
 
@@ -17,7 +21,7 @@ Requires Python 3.9+. Tested on macOS ARM64.
 
 ### Pretrained models
 
-Download `edge-cache-rl-pretrained-exp1.zip` from the [GitHub release](https://github.com/<org>/edge-cache-rl/releases) and unzip at the **repo root** so `pretrained_models/` sits next to `experiments/` and `configs/`. See `pretrained_models/README.md`.
+Download `edge-cache-rl-pretrained-exp1.zip` from Releases and unzip at the **repo root** so `pretrained_models/` sits next to `experiments/` and `configs/`. See `pretrained_models/README.md`.
 
 ## Reproduce the key result
 
@@ -81,8 +85,12 @@ run_paths.py  Canonical paths for training artifacts
 
 ## Citation
 
-This project extends prior work from Professor Genya Ishigaki's Interconnect Lab at SJSU:
+This project extends prior work from Professor Genya Ishigaki's interconnect lab at SJSU:
 
-- Jayaram et al., "Explainable DRL for Edge Container Caching," IEEE Globecom 2023
-- Chen et al., "Multi-Agent Scaling for Edge Caching," IEEE ICCCN 2024
-- Shah et al., "Communication-Efficient State Sharing in NDN," IEEE ICCCN 2026
+- Jayaram, Jeelani, and Ishigaki, "Container Caching Optimization based on Explainable Deep Reinforcement Learning," IEEE Globecom 2023
+- Chen and Ishigaki, "Scaling Container Caching to Larger Networks with Multi-Agent Reinforcement Learning," IEEE ICCCN 2024
+- Shah, Yanamandra, Ramesh, and Ishigaki, "An Intelligent Content Caching for NDN with Communication-Efficient State Sharing," IEEE ICCCN 2026
+
+## License
+
+MIT
