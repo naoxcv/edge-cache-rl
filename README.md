@@ -77,8 +77,8 @@ configs/      default.yaml — network, traffic, reward, and training hyperparam
 dashboard/    FastAPI + React live demo (L0/L1/L3 DQN + LFU heuristic)
 env/          Edge nodes, network topology, request generator, Gymnasium envs
 experiments/  Training, evaluation, SHAP analysis, and sweep scripts
-pretrained_models/  Shareable Exp1 checkpoints (best_model.zip + config per run)
-results/      Checkpoints (runs/), figures, and experiment CSVs/JSON
+pretrained_models/  Exp1 checkpoints (unzip release zip here; *.zip gitignored)
+results/      Published summaries + SHAP figures (runs/ is local-only)
 tests/        pytest suite (109 tests)
 run_paths.py  Canonical paths for training artifacts
 ```

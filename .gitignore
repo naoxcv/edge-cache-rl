@@ -9,10 +9,15 @@ __pycache__/
 node_modules/
 dashboard/frontend/dist/
 
-# Training artifacts (keep configs/evals in git if desired; ignore heavy files)
+# Training / local artifacts (checkpoints via GitHub Releases)
+results/runs/
+results/archive_*/
 results/tb_logs/
 results/**/tensorboard/
 results/**/*.zip
 results/*.zip
-results/*_best/
+results/**/*.npz
+results/**/*_raw.json
+results/**/*.log
 pretrained_models/**/*.zip
+*.zip
