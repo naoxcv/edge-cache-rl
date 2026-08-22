@@ -68,6 +68,16 @@ def evaluate_baselines(
     }
 
 
+def always_on_comms(config: dict, level: int, measured: float | None) -> float | None:
+    """Match fair-eval accounting: L1/L2 = nodes×episode_length; L3 = selective events."""
+    budget = float(config["num_nodes"] * config["episode_length"])
+    if level in (1, 2):
+        return budget
+    if level == 0:
+        return 0.0
+    return float(measured or 0.0)
+
+
 def print_result(result: dict, config: dict) -> None:
     diversity = result.get("cache_diversity")
     if diversity is None:
@@ -195,6 +205,9 @@ def main() -> None:
                     path, cfg, num_episodes=args.episodes, seed=eval_seed
                 )
                 result["policy"] = f"L{level}-DQN"
+                result["comm_events_mean"] = always_on_comms(
+                    cfg, level, result.get("comm_events_mean")
+                )
                 print_result(result, cfg)
                 agg.setdefault(result["policy"], []).append(result)
         print()

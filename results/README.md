@@ -8,8 +8,8 @@ under `pretrained_models/`.
 results/
   figures/                 # SHAP plots
   data/
-    fair_eval_evict/       # Exp1 summary (eviction MDP)
-    week7/                 # sweep summary CSVs
+    fair_eval_evict/       # Exp1 summary CSV (canonical table in README)
+    week7/                 # scalability / traffic / locality summary CSVs
     week8/                 # SHAP JSON
   runs/                    # local only — configs, *.zip, evaluations.npz
 ```

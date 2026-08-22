@@ -176,6 +176,71 @@ function edgePath(pa, pb, sameCluster) {
   return `M ${pa.x} ${pa.y} C ${mx} ${pa.y}, ${mx} ${pb.y}, ${pb.x} ${pb.y}`;
 }
 
+/** Cumulative episode-return sparkline; labels the running high. */
+function ReturnChart({ series, width = 420, height = 72 }) {
+  if (!series.length) {
+    return (
+      <div className="return-chart empty">
+        <div className="label">Episode return</div>
+        <div className="hint">Play to plot cumulative return</div>
+      </div>
+    );
+  }
+  const padL = 8;
+  const padR = 52;
+  const padT = 14;
+  const padB = 6;
+  const vals = series.map((p) => p.y);
+  const ymin = Math.min(0, ...vals);
+  const ymax = Math.max(1, ...vals);
+  const span = ymax - ymin || 1;
+  const xAt = (i) =>
+    padL + (i / Math.max(series.length - 1, 1)) * (width - padL - padR);
+  const yAt = (v) => padT + (1 - (v - ymin) / span) * (height - padT - padB);
+  const d = series
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.y).toFixed(1)}`)
+    .join(" ");
+  let hiIdx = 0;
+  for (let i = 1; i < series.length; i++) {
+    if (series[i].y > series[hiIdx].y) hiIdx = i;
+  }
+  const hi = series[hiIdx];
+  const hx = xAt(hiIdx);
+  const hy = yAt(hi.y);
+  const current = series[series.length - 1].y;
+
+  return (
+    <div className="return-chart">
+      <div className="return-chart-head">
+        <div className="label">Episode return</div>
+        <div className="value">{current.toFixed(1)}</div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <line
+          x1={padL}
+          y1={yAt(0)}
+          x2={width - padR}
+          y2={yAt(0)}
+          stroke="#3a4a63"
+          strokeWidth="1"
+          strokeDasharray="3 3"
+        />
+        <path d={d} fill="none" stroke="var(--comm)" strokeWidth="2" />
+        <circle cx={hx} cy={hy} r="3.5" fill="var(--comm)" />
+        <text
+          x={Math.min(hx + 6, width - 4)}
+          y={Math.max(hy - 4, 11)}
+          fill="var(--comm)"
+          fontSize="11"
+          fontWeight="700"
+        >
+          high {hi.y.toFixed(1)}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 function CacheSlots({ cache, requested, nodeW }) {
   const slot = Math.max(14, Math.min(20, Math.floor((nodeW - 24) / CACHE_CAP) - 2));
   const gap = 3;
@@ -227,8 +292,10 @@ export default function App() {
   const [log, setLog] = useState([]);
   const [connected, setConnected] = useState(false);
   const [frame, setFrame] = useState({ w: 1180, h: 640 });
+  const [returnSeries, setReturnSeries] = useState([]);
   const stageRef = useRef(null);
   const wsRef = useRef(null);
+  const seriesKeyRef = useRef("");
 
   useEffect(() => {
     const el = stageRef.current;
@@ -251,6 +318,32 @@ export default function App() {
     ws.onmessage = (ev) => {
       const next = JSON.parse(ev.data);
       setState(next);
+      const key = `${next.policy_mode || "dqn"}-${next.comm_level}-${next.seed ?? ""}`;
+      const ret = next.stats?.episode_return;
+      const t = next.timestep ?? 0;
+      if (typeof ret === "number") {
+        setReturnSeries((prev) => {
+          const reset =
+            key !== seriesKeyRef.current ||
+            t === 0 ||
+            next.episode_done ||
+            (prev.length && t < prev[prev.length - 1].t);
+          seriesKeyRef.current = key;
+          if (reset) {
+            return t === 0 && !next.episode_done ? [] : [{ t, y: ret }];
+          }
+          const last = prev[prev.length - 1];
+          if (last && last.t === t) {
+            return [...prev.slice(0, -1), { t, y: ret }];
+          }
+          // Keep chart responsive: downsample if very long.
+          const nextPts = [...prev, { t, y: ret }];
+          if (nextPts.length > 800) {
+            return nextPts.filter((_, i) => i % 2 === 0 || i === nextPts.length - 1);
+          }
+          return nextPts;
+        });
+      }
       if (next.nodes) {
         const events = [];
         for (const n of next.nodes) {
@@ -316,8 +409,6 @@ export default function App() {
       : state?.comm_level != null
         ? `L${state.comm_level} DQN`
         : "—";
-  const fmtReward = (v) =>
-    v == null || Number.isNaN(v) ? "—" : v.toFixed(1);
 
   return (
     <div className="app">
@@ -362,25 +453,7 @@ export default function App() {
       </header>
 
       <div className="stats">
-        <div className="stat stat-reward">
-          <div className="label">Episode return</div>
-          <div className="value">{fmtReward(stats.episode_return)}</div>
-          {stats.last_episode_return != null && (
-            <div className="sub">
-              prev ep {fmtReward(stats.last_episode_return)}
-            </div>
-          )}
-        </div>
-        <div className="stat stat-reward">
-          <div className="label">Step reward</div>
-          <div className="value">{fmtReward(stats.step_return)}</div>
-          <div className="sub">task {fmtReward(stats.step_task)}</div>
-        </div>
-        <div className="stat stat-reward">
-          <div className="label">Avg / step</div>
-          <div className="value">{fmtReward(stats.avg_return_per_step)}</div>
-          <div className="sub">this episode</div>
-        </div>
+        <ReturnChart series={returnSeries} />
         <div className="stat">
           <div className="label">Hit rate</div>
           <div className="value">{((stats.hit_rate || 0) * 100).toFixed(1)}%</div>

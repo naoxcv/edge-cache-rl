@@ -92,14 +92,47 @@ header p {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: minmax(280px, 2.2fr) repeat(auto-fill, minmax(120px, 1fr));
   gap: 0.65rem;
   margin-bottom: 0.75rem;
   flex-shrink: 0;
+  align-items: stretch;
 }
 
-.stat-reward .value {
+.return-chart {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem 0.35rem;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+}
+
+.return-chart.empty .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.55rem;
+}
+
+.return-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.return-chart-head .value {
   color: var(--comm);
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.return-chart svg {
+  width: 100%;
+  height: 72px;
+  margin-top: 0.15rem;
+  display: block;
 }
 
 .stat .sub {
@@ -204,7 +237,10 @@ svg.network {
 
 @media (max-width: 720px) {
   .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr 1fr;
+  }
+  .return-chart {
+    grid-column: 1 / -1;
   }
   .stage {
     height: min(560px, 62vh);
